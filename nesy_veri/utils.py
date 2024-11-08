@@ -17,7 +17,7 @@ class NetworksPlusCircuit(nn.Module):
         parse_to_native: bool = True,
     ):
         super().__init__()
-        self.networks = networks
+        self.networks = nn.ModuleList(networks)
         self.sigmoid = nn.Sigmoid()
         self.softmax = nn.Softmax(dim=-1)
         self.softmax_net_outputs = softmax_net_outputs
@@ -26,9 +26,9 @@ class NetworksPlusCircuit(nn.Module):
     def forward(self, x):
         network_outputs = [
             (
-                self.softmax(self.networks[i](x))
+                self.softmax(self.networks[i](x[i].unsqueeze(0)))
                 if self.softmax_net_outputs[i]
-                else self.sigmoid(self.networks[i](x))
+                else self.sigmoid(self.networks[i](x[i].unsqueeze(0)))
             )
             for i in range(len(self.networks))
         ]

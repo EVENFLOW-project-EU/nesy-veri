@@ -21,3 +21,16 @@ class CustomBoundSoftmax(Bound):
         lower = exp_L / (torch.sum(exp_U, dim=self.axis, keepdim=True) - exp_U + exp_L + epsilon)
         upper = exp_U / (torch.sum(exp_L, dim=self.axis, keepdim=True) - exp_L + exp_U + epsilon)
         return lower, upper
+
+class CustomConcat(Bound):
+    def __init__(self, attr=None, inputs=None, output_index=0, options=None):
+        super().__init__(attr, inputs, output_index, options)
+        self.axis = attr['axis']
+    
+    def forward(self, *x):
+        assert self.axis == int(self.axis)
+        return torch.cat(x, dim=self.axis)
+
+    def interval_propagate(self, *v):
+        lower_bounds, upper_bounds = zip(*v)
+        return torch.cat(lower_bounds, dim=self.axis), torch.cat(upper_bounds, dim=self.axis)
