@@ -1,0 +1,102 @@
+import torch
+import operator
+from torch import nn
+from functools import reduce
+from pysdd.sdd import SddNode
+from dataclasses import dataclass
+from typing import Callable, TypeVar
+
+
+
+class NetworksPlusCircuit(nn.Module):
+    def __init__(
+        self,
+        networks: list[nn.Module],
+        softmax_net_outputs: list[bool],
+        circuit: SddNode,
+        parse_to_native: bool = True,
+    ):
+        super().__init__()
+        self.networks = networks
+        self.sigmoid = nn.Sigmoid()
+        self.softmax = nn.Softmax(dim=-1)
+        self.softmax_net_outputs = softmax_net_outputs
+        self.circuit = circuit if not parse_to_native else sdd_parse_native(circuit)
+
+    def forward(self, x):
+        network_outputs = [
+            (
+                self.softmax(self.networks[i](x))
+                if self.softmax_net_outputs[i]
+                else self.sigmoid(self.networks[i](x))
+            )
+            for i in range(len(self.networks))
+        ]
+
+        sdd_input = torch.cat(network_outputs, dim=1)
+        sdd_output = eval_sdd(
+            self.circuit, operator.add, operator.mul, 0, 1, sdd_input
+        )
+
+        return sdd_output
+
+
+@dataclass(frozen=True)
+class pair:
+    prime: "decision_node | int | bool"
+    sub: "decision_node | int | bool"
+
+
+@dataclass(frozen=True)
+class decision_node:
+    children: tuple[pair, ...]
+
+
+def sdd_parse_native(node: SddNode) -> decision_node | bool | int:
+    if node.is_decision():
+        children = []
+        for prime, sub in node.elements():
+            children.append(pair(sdd_parse_native(prime), sdd_parse_native(sub)))
+        return decision_node(tuple(children))
+    elif node.is_true():
+        return True
+    elif node.is_false():
+        return False
+    elif node.is_literal():
+        return node.literal
+    else:
+        raise RuntimeError("unexpected pattern match in node")
+
+
+T = TypeVar("T")
+
+
+def eval_sdd(
+    node: decision_node | int | bool,
+    add: Callable[[T, T], T],
+    mul: Callable[[T, T], T],
+    add_neutral: T,
+    mul_neutral: T,
+    labelling: list[T],
+) -> T:
+
+    def do_eval(n: decision_node | int | bool) -> T:
+
+        if n is True:
+            return mul_neutral
+        elif n is False:
+            return add_neutral
+        elif isinstance(n, int):
+            return labelling[:, abs(n) - 1] if n > 0 else (1 - labelling[:, abs(n) - 1])
+        else:
+            children_values = []
+            for p in n.children:
+                prime_val, sub_val = do_eval(p.prime), do_eval(p.sub)
+                children_values.append(mul(prime_val, sub_val))
+            node_value = reduce(add, children_values)
+
+            return node_value
+
+    result = do_eval(node)
+
+    return result
