@@ -1,4 +1,8 @@
+import torch
 from pysdd.sdd import SddManager
+from torch.utils.data import Dataset
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
 
 def get_sdds_for_sums():
@@ -119,3 +123,34 @@ def get_sdds_for_sums():
         18: sum18,
     }
     # fmt: on
+
+
+class AdditionDataset(Dataset):
+
+    def __init__(self, subset):
+        transform = transforms.Compose(
+            [
+                transforms.ToTensor(),
+                transforms.Normalize((0.5,), (0.5,)),
+            ]
+        )
+
+        datasets = {
+            "train": MNIST(
+                root="data/", train=True, download=True, transform=transform
+            ),
+            "test": MNIST(
+                root="data/", train=False, download=True, transform=transform
+            ),
+        }
+
+        self.dataset = datasets[subset]
+
+    def __len__(self):
+        return len(self.dataset) // 2
+
+    def __getitem__(self, i: int):
+        image1 = self.dataset[i * 2][0]
+        image2 = self.dataset[i * 2 + 1][0]
+        label = int(self.dataset[i * 2][1] + self.dataset[i * 2 + 1][1])
+        return torch.stack((image1, image2)), label
