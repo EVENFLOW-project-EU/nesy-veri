@@ -2,9 +2,8 @@ import os
 import torch
 import numpy as np
 from pathlib import Path
-from torchvision import transforms
-from torch.utils.data import DataLoader, Dataset
-from torchvision.datasets import MNIST
+from rich.progress import track
+from torch.utils.data import Dataset
 from auto_LiRPA import (
     BoundedModule,
     BoundedTensor,
@@ -12,11 +11,12 @@ from auto_LiRPA import (
     register_custom_op,
 )
 
+from nesy_veri.utils import NetworksPlusCircuit
+from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
 from nesy_veri.examples.mnist_addition.mnist_utils import (
     AdditionDataset,
     get_sdds_for_sums,
 )
-from nesy_veri.utils import NetworksPlusCircuit
 from nesy_veri.examples.mnist_addition.network_training import (
     get_mnist_network,
 )
@@ -26,9 +26,11 @@ def get_correctly_classified_examples(
     test_dataset: Dataset,
     net_and_circuit_per_sum: dict[int, NetworksPlusCircuit],
     results_path: os.PathLike,
+    softmax: bool,
 ):
     print()
-    correct_images_path = results_path / "correctly_classified_imgs.csv"  # type: ignore
+    filename = f"correctly_classified_imgs{'_softmax' if softmax else ''}.csv"
+    correct_images_path = results_path / filename  # type: ignore
 
     # if the list has already been generated just load it
     if os.path.exists(correct_images_path):
@@ -54,18 +56,15 @@ def get_correctly_classified_examples(
 
 
 if __name__ == "__main__":
-    # let auto-LiRPA know I want to use BoundSoftmax
-    from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
-
-    register_custom_op("onnx::Softmax", CustomBoundSoftmax)
-    register_custom_op("onnx::Concat", CustomConcat)
-
     # get trained CNN
-    model_path = Path(__file__).parent / "checkpoints/trained_model.pth"
-    mnist_cnn = get_mnist_network(model_path=model_path)
+    softmax = True
+    model_path = (
+        Path(__file__).parent
+        / f"checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+    )
+    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
 
-    # data stuff
-    # TODO: shuffle = False on DataLoader??
+    # get the dataset (this is copied from the DeepProbLog experiments)
     test_dataset = AdditionDataset(subset="test")
 
     # get an SDD circuit for each MNIST addition sum
@@ -76,17 +75,24 @@ if __name__ == "__main__":
     net_and_circuit_per_sum = {
         sum_: NetworksPlusCircuit(
             networks=[mnist_cnn, mnist_cnn],
-            softmax_net_outputs=[True, True],
             circuit=sdd_,
+            softmax_net_outputs=[not softmax, not softmax],
             parse_to_native=True,
         )
         for sum_, sdd_ in sdd_per_sum.items()
     }
 
+    # get the dataset examples that were classified correctly
+    # only there we perform verification for now
     results_path = Path(__file__).parent / "results"
     correctly_classified_idxs = get_correctly_classified_examples(
-        test_dataset, net_and_circuit_per_sum, results_path
+        test_dataset, net_and_circuit_per_sum, results_path, softmax
     )
+
+    # let auto-LiRPA know I want to use the custom operators for bounding
+    # softmax and concatenation
+    register_custom_op("onnx::Softmax", CustomBoundSoftmax)
+    register_custom_op("onnx::Concat", CustomConcat)
 
     # construct bounded module for each of the 19 network+circuit graphs
     bounded_module_per_sum = {
@@ -103,8 +109,6 @@ if __name__ == "__main__":
 
         num_samples_checked = 0
         num_samples_robust = 0
-
-        from rich.progress import track
 
         for idx in track(correctly_classified_idxs):
             input_imgs, sum_label = test_dataset[idx]
@@ -127,14 +131,14 @@ if __name__ == "__main__":
             # an example is verifiably robust if the upper bounds of all wrong classes
             # are lower than the lower bound of the correct class
             wrong_upper_bounds = [
-                lb for sum_, (lb, ub) in bounds_per_sum.items() if sum_ != sum_label
+                lb for sum_, (lb, _) in bounds_per_sum.items() if sum_ != sum_label
             ]
             correct_lower_bound = bounds_per_sum[sum_label][0]
             robust = all(ub < correct_lower_bound for ub in wrong_upper_bounds)
 
             num_samples_checked += 1
             num_samples_robust += robust
-        
+
         print(
             f"Epsilon: {epsilon:<15}",
             f"#total: {len(test_dataset)}, \t ",

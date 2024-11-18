@@ -1,11 +1,10 @@
 import os
-from pathlib import Path
 import torch
 import torchmetrics
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from torchvision.datasets import MNIST, mnist
+from torchvision.datasets import MNIST
 
 from rich.progress import (
     BarColumn,
@@ -19,7 +18,7 @@ from rich.progress import (
 
 
 class MNIST_Net(nn.Module):
-    def __init__(self, dense_input_size=16 * 4 * 4):
+    def __init__(self, softmax=True, dense_input_size=16 * 4 * 4):
         super(MNIST_Net, self).__init__()
 
         self.size = dense_input_size
@@ -36,7 +35,7 @@ class MNIST_Net(nn.Module):
             nn.Linear(self.size, 50),
             nn.ReLU(),
             nn.Linear(50, 10),
-            # nn.Softmax(1),
+            nn.Softmax(dim=-1) if softmax else nn.Identity(),
         )
 
     def forward(self, x):
@@ -84,7 +83,17 @@ def run_dataloader(
         for idx, (inputs, labels) in enumerate(dataloader):
             outputs = network(inputs)
 
-            loss = loss_function(outputs, labels)
+            match loss_function:
+                case nn.CrossEntropyLoss():
+                    loss = loss_function(outputs, labels)
+                case nn.NLLLoss():
+                    loss = loss_function(torch.log(outputs), labels)
+                case _:
+                    raise (
+                        ValueError(
+                            "The loss function should be either NLLLoss or CrossEntropyLoss"
+                        )
+                    )
 
             if train:
                 optimizer.zero_grad()
@@ -114,6 +123,7 @@ def run_dataloader(
 
 def train_mnist_network(
     save_model_path: os.PathLike,
+    softmax: bool = True,
     batch_size: int = 32,
     num_epochs: int = 10,
     lr: float = 1e-3,
@@ -131,9 +141,9 @@ def train_mnist_network(
     train_dl = DataLoader(train_dataset, batch_size, shuffle=True)
     test_dl = DataLoader(test_dataset, batch_size, shuffle=True)
 
-    mnist_net = MNIST_Net()
+    mnist_net = MNIST_Net(softmax=softmax)
     optimizer = optim.Adam(mnist_net.parameters(), lr=lr)
-    loss_function = nn.CrossEntropyLoss()
+    loss_function = nn.NLLLoss() if softmax else nn.CrossEntropyLoss()
 
     metrics = {
         "f1-macro": torchmetrics.F1Score(
@@ -178,22 +188,18 @@ def train_mnist_network(
     torch.save(mnist_net.state_dict(), save_model_path)
 
 
-def get_mnist_network(model_path: os.PathLike):
-    mnist_net = MNIST_Net()
+def get_mnist_network(model_path: os.PathLike, softmax: bool, num_epochs: int = 10):
+    mnist_net = MNIST_Net(softmax=softmax)
 
     # if the trained network hasn't been saved, train and save it
     if not os.path.exists(model_path):
-        train_mnist_network(save_model_path=model_path, num_epochs=10)
+        train_mnist_network(
+            save_model_path=model_path,
+            softmax=softmax,
+            num_epochs=num_epochs,
+        )
 
     mnist_net.load_state_dict(torch.load(model_path, weights_only=True))
     mnist_net.eval()
 
     return mnist_net
-
-
-if __name__ == "__main__":
-
-    model_path = Path(__file__).parent.resolve() / "checkpoints" / "trained_model.pth"
-    mnist_net = get_mnist_network(model_path=model_path)
-
-    print()

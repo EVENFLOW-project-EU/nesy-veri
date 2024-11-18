@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Callable, TypeVar
 
 
-
 class NetworksPlusCircuit(nn.Module):
     def __init__(
         self,
@@ -18,25 +17,26 @@ class NetworksPlusCircuit(nn.Module):
     ):
         super().__init__()
         self.networks = nn.ModuleList(networks)
-        self.sigmoid = nn.Sigmoid()
-        self.softmax = nn.Softmax(dim=-1)
         self.softmax_net_outputs = softmax_net_outputs
         self.circuit = circuit if not parse_to_native else sdd_parse_native(circuit)
 
     def forward(self, x):
+        # evaluate the neural networks
+        # the ith network is evaluated on the ith input, and possibly softmaxed
         network_outputs = [
             (
-                self.softmax(self.networks[i](x[i].unsqueeze(0)))
+                self.networks[i](x[i].unsqueeze(0)).softmax(dim=1)
                 if self.softmax_net_outputs[i]
-                else self.sigmoid(self.networks[i](x[i].unsqueeze(0)))
+                else self.networks[i](x[i].unsqueeze(0))
             )
             for i in range(len(self.networks))
         ]
 
-        sdd_input = torch.cat(network_outputs, dim=1)
-        sdd_output = eval_sdd(
-            self.circuit, operator.add, operator.mul, 0, 1, sdd_input
-        )
+        # concatenate the network outputs and flatten to pass to SDD
+        sdd_input = torch.cat(network_outputs, dim=1).squeeze(0)
+        
+        # evaluate the SDD on the NN outputs
+        sdd_output = eval_sdd(self.circuit, operator.add, operator.mul, 0, 1, sdd_input)
 
         return sdd_output
 
@@ -87,7 +87,7 @@ def eval_sdd(
         elif n is False:
             return add_neutral
         elif isinstance(n, int):
-            return labelling[:, abs(n) - 1] if n > 0 else (1 - labelling[:, abs(n) - 1])
+            return labelling[abs(n) - 1] if n > 0 else (1 - labelling[abs(n) - 1])
         else:
             children_values = []
             for p in n.children:
