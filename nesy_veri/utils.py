@@ -87,7 +87,7 @@ def eval_sdd(
         elif n is False:
             return add_neutral
         elif isinstance(n, int):
-            return labelling[abs(n) - 1] if n > 0 else (1 - labelling[abs(n) - 1])
+            return labelling[abs(n) - 1] if n > 0 else 1
         else:
             children_values = []
             for p in n.children:
