@@ -1,9 +1,7 @@
-import os
 import torch
 import numpy as np
 from pathlib import Path
 from rich.progress import track
-from torch.utils.data import Dataset
 from auto_LiRPA import (
     BoundedModule,
     BoundedTensor,
@@ -11,64 +9,23 @@ from auto_LiRPA import (
     register_custom_op,
 )
 
-from nesy_veri.utils import NetworksPlusCircuit
+from nesy_veri.utils import NetworksPlusCircuit, example_is_robust
 from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
+from nesy_veri.examples.mnist_addition.network_training import get_mnist_network
 from nesy_veri.examples.mnist_addition.mnist_utils import (
-    AdditionDataset,
-    get_sdds_for_sums,
-)
-from nesy_veri.examples.mnist_addition.network_training import (
-    get_mnist_network,
+    MultiDigitAdditionDataset,
+    get_correctly_classified_examples,
 )
 
 
-def get_correctly_classified_examples(
-    test_dataset: Dataset,
-    net_and_circuit_per_sum: dict[int, NetworksPlusCircuit],
-    results_path: os.PathLike,
-    softmax: bool,
+def get_bounded_modules_and_samples_to_verify(
+    softmax: bool, test_dataset: MultiDigitAdditionDataset
 ):
-    print()
-    filename = f"correctly_classified_imgs{'_softmax' if softmax else ''}.csv"
-    correct_images_path = results_path / filename  # type: ignore
-
-    # if the list has already been generated just load it
-    if os.path.exists(correct_images_path):
-        with open(correct_images_path, "r") as file:
-            return list(map(int, file.read().split(",")))
-
-    correctly_predicted_idxs = []
-    for idx, (image_pair, label) in enumerate(test_dataset):
-        pred_per_sum = {
-            sum_: net_plus_circuit(image_pair).item()
-            for sum_, net_plus_circuit in net_and_circuit_per_sum.items()
-        }
-
-        highest_pred = max(pred_per_sum, key=pred_per_sum.get)  # type: ignore
-        if highest_pred == label:
-            correctly_predicted_idxs.append(idx)
-
-    # write to file for reading next time
-    with open(correct_images_path, "w") as file:
-        file.write(",".join(map(str, correctly_predicted_idxs)))
-
-    return correctly_predicted_idxs
-
-
-if __name__ == "__main__":
-    # get trained CNN
-    softmax = True
     model_path = (
         Path(__file__).parent
         / f"checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
     )
     mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
-
-    # get the dataset (this is copied from the DeepProbLog experiments)
-    test_dataset = AdditionDataset(subset="test")
-
-    # get an SDD circuit for each MNIST addition sum
-    sdd_per_sum = get_sdds_for_sums()
 
     # for each sum, get a network+circuit module
     # these will be used both for inference and for bound propagation
@@ -79,14 +36,14 @@ if __name__ == "__main__":
             softmax_net_outputs=[not softmax, not softmax],
             parse_to_native=True,
         )
-        for sum_, sdd_ in sdd_per_sum.items()
+        for sum_, sdd_ in test_dataset.sdd_per_sum.items()
     }
 
     # get the dataset examples that were classified correctly
     # only there we perform verification for now
     results_path = Path(__file__).parent / "results"
     correctly_classified_idxs = get_correctly_classified_examples(
-        test_dataset, net_and_circuit_per_sum, results_path, softmax
+        test_dataset, net_and_circuit_per_sum, results_path, softmax, num_digits
     )
 
     # let auto-LiRPA know I want to use the custom operators for bounding
@@ -103,6 +60,25 @@ if __name__ == "__main__":
         )
         for sum_, net_plus_circuit in net_and_circuit_per_sum.items()
     }
+
+    return bounded_module_per_sum, correctly_classified_idxs
+
+
+if __name__ == "__main__":
+    # get trained CNN
+    softmax = True
+
+    # declare number of MNIST digits for this experiment
+    num_digits = 3
+
+    # get the dataset for this number of digits
+    test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
+
+    # get a bounded version of the network+circuit structre for each sum
+    # also get the indices that were classified correctly and so should be verified
+    bounded_module_per_sum, correctly_classified_idxs = (
+        get_bounded_modules_and_samples_to_verify(softmax, test_dataset)
+    )
 
     # check what happens for several epsilons
     for epsilon in [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]:
@@ -128,16 +104,8 @@ if __name__ == "__main__":
                 for sum_, bounded_module in bounded_module_per_sum.items()
             }
 
-            # an example is verifiably robust if the upper bounds of all wrong classes
-            # are lower than the lower bound of the correct class
-            wrong_upper_bounds = [
-                lb for sum_, (lb, _) in bounds_per_sum.items() if sum_ != sum_label
-            ]
-            correct_lower_bound = bounds_per_sum[sum_label][0]
-            robust = all(ub < correct_lower_bound for ub in wrong_upper_bounds)
-
             num_samples_checked += 1
-            num_samples_robust += robust
+            num_samples_robust += example_is_robust(bounds_per_sum, sum_label)
 
         print(
             f"Epsilon: {epsilon:<15}",

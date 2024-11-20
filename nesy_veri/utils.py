@@ -100,3 +100,15 @@ def eval_sdd(
     result = do_eval(node)
 
     return result
+
+
+def example_is_robust(bounds_per_class: dict[int, list[float]], correct_class: int):
+    # an example is verifiably robust if the upper bounds of all wrong classes
+    # are lower than the lower bound of the correct class
+    wrong_upper_bounds = [
+        lb for class_, (lb, _) in bounds_per_class.items() if class_ != correct_class
+    ]
+    correct_lower_bound = bounds_per_class[correct_class][0]
+    robust = all(ub < correct_lower_bound for ub in wrong_upper_bounds)
+
+    return robust

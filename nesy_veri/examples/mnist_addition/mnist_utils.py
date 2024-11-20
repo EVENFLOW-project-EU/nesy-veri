@@ -1,12 +1,15 @@
+import os
 import torch
 import operator
 from functools import reduce
+from rich.progress import track
 from pysdd.sdd import SddManager
 from torchvision import transforms
 from torch.utils.data import Dataset
 from torchvision.datasets import MNIST
 from itertools import product, combinations
 
+from nesy_veri.utils import NetworksPlusCircuit
 
 def get_sdd_for_sums(num_digits: int):
     sdd_per_sum = {}
@@ -80,3 +83,39 @@ class MultiDigitAdditionDataset(Dataset):
             sum_label += self.dataset[i * self.num_digits + x][1]
 
         return torch.stack(images), sum_label
+
+
+def get_correctly_classified_examples(
+    test_dataset: Dataset,
+    net_and_circuit_per_sum: dict[int, NetworksPlusCircuit],
+    results_path: os.PathLike,
+    softmax: bool,
+    num_digits: int,
+):
+    print()
+    filename = (
+        f"correctly_classified_imgs_{num_digits}{'_softmax' if softmax else ''}.csv"
+    )
+    correct_images_path = results_path / filename  # type: ignore
+
+    # if the list has already been generated just load it
+    if os.path.exists(correct_images_path):
+        with open(correct_images_path, "r") as file:
+            return list(map(int, file.read().split(",")))
+
+    correctly_predicted_idxs = []
+    for idx, (images, label) in track(enumerate(test_dataset)):
+        pred_per_sum = {
+            sum_: net_plus_circuit(images).item()
+            for sum_, net_plus_circuit in net_and_circuit_per_sum.items()
+        }
+
+        highest_pred = max(pred_per_sum, key=pred_per_sum.get)  # type: ignore
+        if highest_pred == label:
+            correctly_predicted_idxs.append(idx)
+
+    # write to file for reading next time
+    with open(correct_images_path, "w") as file:
+        file.write(",".join(map(str, correctly_predicted_idxs)))
+
+    return correctly_predicted_idxs
