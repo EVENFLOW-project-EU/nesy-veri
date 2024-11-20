@@ -94,7 +94,7 @@ def get_correctly_classified_examples(
 ):
     print()
     filename = (
-        f"correctly_classified_imgs_{num_digits}{'_softmax' if softmax else ''}.csv"
+        f"correctly_classified_imgs_{num_digits}_digits{'_softmax' if softmax else ''}.csv"
     )
     correct_images_path = results_path / filename  # type: ignore
 
