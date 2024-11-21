@@ -76,8 +76,13 @@ if __name__ == "__main__":
 
         # get a bounded version of the network+circuit structre for each sum
         # also get the indices that were classified correctly and so should be verified
-        bounded_module_per_sum, correctly_classified_idxs = (
-            get_bounded_modules_and_samples_to_verify(softmax, num_digits, test_dataset)
+        (
+            bounded_module_per_sum,
+            correctly_classified_idxs,
+        ) = get_bounded_modules_and_samples_to_verify(
+            softmax,
+            num_digits,
+            test_dataset,
         )
 
         # check what happens for several epsilons
