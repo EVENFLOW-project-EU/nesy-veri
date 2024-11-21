@@ -106,7 +106,7 @@ def example_is_robust(bounds_per_class: dict[int, list[float]], correct_class: i
     # an example is verifiably robust if the upper bounds of all wrong classes
     # are lower than the lower bound of the correct class
     wrong_upper_bounds = [
-        lb for class_, (lb, _) in bounds_per_class.items() if class_ != correct_class
+        ub for class_, (_, ub) in bounds_per_class.items() if class_ != correct_class
     ]
     correct_lower_bound = bounds_per_class[correct_class][0]
     robust = all(ub < correct_lower_bound for ub in wrong_upper_bounds)
