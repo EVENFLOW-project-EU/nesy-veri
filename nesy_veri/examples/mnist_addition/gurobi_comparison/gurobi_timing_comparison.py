@@ -2,6 +2,7 @@ import torch
 import operator
 import numpy as np
 import gurobipy as gp
+from time import time
 from pathlib import Path
 from functools import reduce
 from pysdd.sdd import SddNode
@@ -21,7 +22,6 @@ from nesy_veri.examples.mnist_addition.verification import (
 from nesy_veri.examples.mnist_addition.mnist_utils import (
     MultiDigitAdditionDataset,
 )
-from nesy_veri.utils import example_is_robust
 
 
 def sdd_to_gurobi_model(
@@ -106,11 +106,11 @@ def sdd_to_gurobi_model(
     return model, optimization_target
 
 
-def get_bounds_per_sum_gurobi(
+def get_bounds_for_sum_gurobi(
     bounded_network: BoundedModule,
     input_imgs: torch.Tensor,
     epsilon: float,
-    sdd_per_sum: dict[int, SddNode],
+    correct_sum_sdd: SddNode,
     num_digits: int,
 ):
 
@@ -134,30 +134,26 @@ def get_bounds_per_sum_gurobi(
     #     if d % 10 == 0:
     #         print()
 
-    bounds_per_sum = {}
-    for curr_sum, curr_sdd in sdd_per_sum.items():
-        # calculate the minimum and maximum probability for the correct sum
-        model, var = sdd_to_gurobi_model(
-            curr_sdd,
-            bounds=images_bounds,
-            categorical_groups=[
-                list(range(i * 10 + 1, (i + 1) * 10 + 1)) for i in range(num_digits)
-            ],
-        )
+    # calculate the minimum and maximum probability for the correct sum
+    model, var = sdd_to_gurobi_model(
+        correct_sum_sdd,
+        bounds=images_bounds,
+        categorical_groups=[
+            list(range(i * 10 + 1, (i + 1) * 10 + 1)) for i in range(num_digits)
+        ],
+    )
 
-        # find minimum
-        model.setObjective(var, sense=gp.GRB.MINIMIZE)
-        model.optimize()
-        minimum = model.ObjVal
+    # find minimum
+    model.setObjective(var, sense=gp.GRB.MINIMIZE)
+    model.optimize()
+    minimum = model.ObjVal
 
-        # find maximum
-        model.setObjective(var, sense=gp.GRB.MAXIMIZE)
-        model.optimize()
-        maximum = model.ObjVal
+    # find maximum
+    model.setObjective(var, sense=gp.GRB.MAXIMIZE)
+    model.optimize()
+    maximum = model.ObjVal
 
-        bounds_per_sum[curr_sum] = [minimum, maximum]
-
-    return bounds_per_sum
+    return minimum, maximum
 
 
 if __name__ == "__main__":
@@ -176,7 +172,7 @@ if __name__ == "__main__":
     register_custom_op("onnx::Concat", CustomConcat)
 
     # declare number of MNIST digits for this experiment
-    for num_digits in [2, 3]:
+    for num_digits in [4, 3, 2]:
 
         # get the dataset for this number of digits
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
@@ -199,58 +195,46 @@ if __name__ == "__main__":
             verbose=False,
         )
 
-        # check what happens for several epsilons
-        for epsilon in [0.001]:
-            # for epsilon in [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]:
+        epsilon = 0.001
+        timings_e2e = []
+        timings_grb = []
+        
+        for idx in track(correctly_classified_idxs):
+            input_imgs, sum_label = test_dataset[idx]
 
-            num_samples_checked = 0
-            num_samples_robust_e2e = 0
-            num_samples_robust_grb = 0
-            grb_problematic_samples = 0
+            # create perturbed input
+            ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
+            ptb_input = BoundedTensor(input_imgs, ptb)
 
-            for idx in track(correctly_classified_idxs):
-                input_imgs, sum_label = test_dataset[idx]
-
-                # create perturbed input
-                ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
-                ptb_input = BoundedTensor(input_imgs, ptb)
-
-                bounds_per_sum_e2e = {
-                    sum_: [
-                        bound.item()
-                        for bound in bounded_module.compute_bounds(
-                            x=ptb_input, method="IBP"
-                        )
-                    ]
-                    for sum_, bounded_module in bounded_module_per_sum.items()
-                }
-
-                try:
-                    # get bounds per sum for the Gurobi thing
-                    bounds_per_sum_grb = get_bounds_per_sum_gurobi(
-                        bounded_network=bounded_cnn,
-                        input_imgs=input_imgs,
-                        epsilon=epsilon,
-                        sdd_per_sum=test_dataset.sdd_per_sum,
-                        num_digits=num_digits,
-                    )
-
-                    num_samples_checked += 1
-                    num_samples_robust_e2e += example_is_robust(
-                        bounds_per_sum_e2e, sum_label
-                    )
-                    num_samples_robust_grb += example_is_robust(
-                        bounds_per_sum_grb, sum_label
-                    )
-
-                except Exception as e:
-                    # print(f"Sample {idx} \t error: {e}")
-                    grb_problematic_samples += 1
-
-            print(
-                f"#digits: {num_digits:<10}"
-                f"Epsilon: {epsilon} \t",
-                f"#robust correct (E2E): {num_samples_robust_e2e},  {round(((num_samples_robust_e2e / len(test_dataset))*100), 2)}% ",
-                f"#robust correct (GRB): {num_samples_robust_grb},  {round(((num_samples_robust_grb / len(test_dataset))*100), 2)}% ",
-                f"({grb_problematic_samples} problematic samples)"
+            e2e_start = time()
+            correct_sum_lower_bound = (
+                bounded_module_per_sum[sum_label]
+                .compute_bounds(x=ptb_input, method="IBP")[0]
+                .item()
             )
+            e2e_end = time()
+
+            try:
+                # get bounds per sum for the Gurobi thing
+                grb_start = time()
+                correct_minimum, _ = get_bounds_for_sum_gurobi(
+                    bounded_network=bounded_cnn,
+                    input_imgs=input_imgs,
+                    epsilon=epsilon,
+                    correct_sum_sdd=test_dataset.sdd_per_sum[sum_label],
+                    num_digits=num_digits,
+                )
+                grb_end = time()
+
+                timings_e2e.append(e2e_end - e2e_start)
+                timings_grb.append(grb_end - grb_start)
+
+            except Exception as e:
+                print(f"Sample {idx} \t error: {e}")
+
+        print(
+            f"#digits: {num_digits:<10}",
+            f"epsilon: {epsilon}  ",
+            f"average E2E time: {(sum(timings_e2e) / len(timings_e2e)):.4f}",
+            f"average GRB time: {(sum(timings_grb) / len(timings_grb)):.4f}",
+        )
