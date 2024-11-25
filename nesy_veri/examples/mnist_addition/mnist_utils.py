@@ -1,6 +1,7 @@
 import os
 import torch
 import operator
+from pathlib import Path
 from functools import reduce
 from rich.progress import track
 from pysdd.sdd import SddManager
@@ -11,7 +12,8 @@ from itertools import product, combinations
 
 from nesy_veri.utils import NetworksPlusCircuit
 
-def get_sdd_for_sums(num_digits: int):
+
+def get_sdd_for_sums(num_digits: int, save_path: os.PathLike):
     sdd_per_sum = {}
     manager = SddManager(num_digits * 10, 0)
 
@@ -82,7 +84,11 @@ class MultiDigitAdditionDataset(Dataset):
             ),
         )
 
-        self.sdd_per_sum = get_sdd_for_sums(self.num_digits)
+        self.sdd_per_sum = get_sdd_for_sums(
+            num_digits=self.num_digits,
+            save_path=Path(__file__).parent
+            / f"checkpoints/SDDs/{self.num_digits}_digits",
+        )
 
     def __len__(self):
         return len(self.dataset) // self.num_digits
@@ -105,9 +111,7 @@ def get_correctly_classified_examples(
     num_digits: int,
 ):
     print()
-    filename = (
-        f"correctly_classified_imgs_{num_digits}_digits{'_softmax' if softmax else ''}.csv"
-    )
+    filename = f"{num_digits}_digits{'_softmax' if softmax else ''}.csv"
     correct_images_path = results_path / filename  # type: ignore
 
     # if the list has already been generated just load it

@@ -23,7 +23,7 @@ def get_bounded_modules_and_samples_to_verify(
 ):
     model_path = (
         Path(__file__).parent.parent
-        / f"mnist_addition/checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+        / f"mnist_addition/checkpoints/model_checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
     )
     mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
 
@@ -41,7 +41,7 @@ def get_bounded_modules_and_samples_to_verify(
 
     # get the dataset examples that were classified correctly
     # only there we perform verification for now
-    results_path = Path(__file__).parent.parent / "mnist_addition/results"
+    results_path = Path(__file__).parent.parent / "mnist_addition/checkpoints/correctly_classified_examples"
     correctly_classified_idxs = get_correctly_classified_examples(
         test_dataset, net_and_circuit_per_sum, results_path, softmax, num_digits
     )

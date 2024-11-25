@@ -165,7 +165,7 @@ if __name__ == "__main__":
     softmax = True
     model_path = (
         Path(__file__).parent.parent
-        / f"checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+        / f"checkpoints/model_checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
     )
     mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
 
