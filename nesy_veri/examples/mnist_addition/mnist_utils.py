@@ -4,7 +4,7 @@ import operator
 from pathlib import Path
 from functools import reduce
 from rich.progress import track
-from pysdd.sdd import SddManager
+from pysdd.sdd import SddManager, SddNode, Vtree
 from torchvision import transforms
 from torch.utils.data import Dataset
 from torchvision.datasets import MNIST
@@ -13,62 +13,84 @@ from itertools import product, combinations
 from nesy_veri.utils import NetworksPlusCircuit
 
 
-def get_sdd_for_sums(num_digits: int, save_path: os.PathLike):
+def get_sdd_for_sums(num_digits: int, save_path: os.PathLike) -> dict[int, SddNode]:
+    # all SDDs are placed in a dict where the key is the sum for that SDD
     sdd_per_sum = {}
-    manager = SddManager(num_digits * 10, 0)
 
-    constraints = []
-    for i in range(num_digits):
-        # each digit *must* take a value (0-9)
-        constraints.append(
-            reduce(
-                operator.or_,
-                (manager.literal(j + 1) for j in range(i * 10, (i + 1) * 10)),
-            )
-        )
+    # check if the SDDs for this number of digits have been generated and saved
+    all_sdds_generated = all(
+        [(save_path / str(sum_)).exists() for sum_ in range(9 * num_digits + 1)]  # type: ignore
+    )
 
-        # if one value is true, then no other value can be true (pairwise exclusive)
-        constraints.append(
-            reduce(
-                operator.and_,
-                [
-                    ~(manager.literal(n + 1) & manager.literal(m + 1))
-                    for n, m in combinations(range(i * 10, (i + 1) * 10), 2)
-                ],
-            )
-        )
-    constraints = reduce(operator.and_, constraints)
-    constraints.ref()
+    # if they have, just read them from file
+    if all_sdds_generated:
+        vtree = Vtree.from_file(str(save_path / "vtree").encode("utf-8"))
+        manager = SddManager.from_vtree(vtree) # type: ignore
+        for sum_ in track(range(9 * num_digits + 1)):
+            filename = save_path / str(sum_)  # type: ignore
+            sdd_per_sum[sum_] = manager.read_sdd_file(str(filename).encode("utf-8"))
+            # TODO: do I need to minimize here and do something with the vtree ?
 
-    # the sum is smallest when all digits are 0 and largest when all digits are 9
-    for sum_ in track(range(9 * num_digits + 1)):
-        # models = []
-        all_worlds = product(range(10), repeat=num_digits)
-        sum_worlds = filter(lambda comb: sum(comb) == sum_, all_worlds)
+        return sdd_per_sum
 
-        expression = manager.false()
-        for combination in sum_worlds:
-            model = reduce(
-                operator.and_,
-                [
-                    manager.literal(idx * 10 + value + 1)
-                    for idx, value in enumerate(combination)
-                ],
+    # else, generate and save them
+    else:
+        manager = SddManager(num_digits * 10, 0)
+        constraints = []
+        for i in range(num_digits):
+            # each digit *must* take a value (0-9)
+            constraints.append(
+                reduce(
+                    operator.or_,
+                    (manager.literal(j + 1) for j in range(i * 10, (i + 1) * 10)),
+                )
             )
 
-            expression = expression | model
-            # expression.ref()
-            # manager.minimize()
-            # expression.deref()
-            # models.append(model)
+            # if one value is true, then no other value can be true (pairwise exclusive)
+            constraints.append(
+                reduce(
+                    operator.and_,
+                    [
+                        ~(manager.literal(n + 1) & manager.literal(m + 1))
+                        for n, m in combinations(range(i * 10, (i + 1) * 10), 2)
+                    ],
+                )
+            )
+        constraints = reduce(operator.and_, constraints)
+        constraints.ref()
 
-        f = expression & constraints
-        f.ref()
-        manager.minimize()
-        sdd_per_sum[sum_] = f
-        # sdd_per_sum[sum_] = reduce(operator.or_, models) & constraints
+        # the sum is smallest when all digits are 0 and largest when all digits are 9
+        for sum_ in track(range(9 * num_digits + 1)):
+            filename = save_path / str(sum_)  # type: ignore
+            all_worlds = product(range(10), repeat=num_digits)
+            sum_worlds = filter(lambda comb: sum(comb) == sum_, all_worlds)
 
-    return sdd_per_sum
+            # start with false and OR the models one-by-one
+            expression = manager.false()
+            for combination in sum_worlds:
+                model = reduce(
+                    operator.and_,
+                    [
+                        manager.literal(idx * 10 + value + 1)
+                        for idx, value in enumerate(combination)
+                    ],
+                )
+
+                expression = expression | model
+
+            f = expression & constraints
+            f.ref()
+            manager.minimize()
+            sdd_per_sum[sum_] = f
+
+        # save the tree of the minimized manager
+        manager.vtree().save(str(save_path / "vtree").encode("utf-8")) # type: ignore
+
+        # save all the SDDs
+        for sum_, sdd_ in sdd_per_sum.items():
+            manager.save(str(save_path / str(sum_)).encode("utf-8"), sdd_) # type: ignore
+
+        return sdd_per_sum
 
 
 class MultiDigitAdditionDataset(Dataset):
