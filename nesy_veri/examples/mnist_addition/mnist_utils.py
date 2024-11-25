@@ -36,12 +36,15 @@ def get_sdd_for_sums(num_digits: int):
             )
         )
     constraints = reduce(operator.and_, constraints)
+    constraints.ref()
 
     # the sum is smallest when all digits are 0 and largest when all digits are 9
-    for sum_ in range(9 * num_digits + 1):
-        models = []
+    for sum_ in track(range(9 * num_digits + 1)):
+        # models = []
         all_worlds = product(range(10), repeat=num_digits)
         sum_worlds = filter(lambda comb: sum(comb) == sum_, all_worlds)
+
+        expression = manager.false()
         for combination in sum_worlds:
             model = reduce(
                 operator.and_,
@@ -50,9 +53,18 @@ def get_sdd_for_sums(num_digits: int):
                     for idx, value in enumerate(combination)
                 ],
             )
-            models.append(model)
 
-        sdd_per_sum[sum_] = reduce(operator.or_, models) & constraints
+            expression = expression | model
+            # expression.ref()
+            # manager.minimize()
+            # expression.deref()
+            # models.append(model)
+
+        f = expression & constraints
+        f.ref()
+        manager.minimize()
+        sdd_per_sum[sum_] = f
+        # sdd_per_sum[sum_] = reduce(operator.or_, models) & constraints
 
     return sdd_per_sum
 
