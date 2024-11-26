@@ -1,0 +1,109 @@
+c ids of vtree nodes start at 0
+c ids of variables start at 1
+c vtree nodes appear bottom-up, children before parents
+c
+c file syntax:
+c vtree number-of-nodes-in-vtree
+c L id-of-leaf-vtree-node id-of-variable
+c I id-of-internal-vtree-node id-of-left-child id-of-right-child
+c
+vtree 99
+L 0 3
+L 2 4
+L 4 2
+I 3 2 4
+I 1 0 3
+L 6 6
+L 8 7
+I 7 6 8
+L 10 5
+L 12 1
+I 11 10 12
+L 14 8
+L 16 10
+L 18 9
+I 17 16 18
+I 15 14 17
+I 13 11 15
+I 9 7 13
+I 5 1 9
+L 20 13
+L 22 14
+L 24 12
+I 23 22 24
+I 21 20 23
+L 26 16
+L 28 17
+I 27 26 28
+L 30 15
+L 32 11
+I 31 30 32
+L 34 18
+L 36 19
+L 38 20
+I 37 36 38
+I 35 34 37
+I 33 31 35
+I 29 27 33
+I 25 21 29
+L 40 26
+L 42 27
+I 41 40 42
+L 44 28
+L 46 30
+L 48 29
+I 47 46 48
+I 45 44 47
+I 43 41 45
+L 50 21
+L 52 22
+I 51 50 52
+L 54 23
+L 56 25
+L 58 24
+I 57 56 58
+I 55 54 57
+I 53 51 55
+L 60 33
+L 62 32
+I 61 60 62
+L 64 31
+L 66 38
+L 68 39
+L 70 40
+I 69 68 70
+I 67 66 69
+I 65 64 67
+I 63 61 65
+L 72 34
+L 74 35
+I 73 72 74
+L 76 36
+L 78 37
+I 77 76 78
+I 75 73 77
+L 80 42
+L 82 43
+I 81 80 82
+L 84 41
+L 86 44
+I 85 84 86
+L 88 45
+L 90 46
+L 92 47
+L 94 48
+L 96 50
+L 98 49
+I 97 96 98
+I 95 94 97
+I 93 92 95
+I 91 90 93
+I 89 88 91
+I 87 85 89
+I 83 81 87
+I 79 75 83
+I 71 63 79
+I 59 53 71
+I 49 43 59
+I 39 25 49
+I 19 5 39
