@@ -76,9 +76,9 @@ def get_sdd_for_sums(num_digits: int, save_path: os.PathLike) -> dict[int, SddNo
                     ],
                 )
 
-                expression = expression | model
+                expression = (expression | model) & constraints
 
-            f = expression & constraints
+            f = expression
             f.ref()
             manager.minimize()
             sdd_per_sum[sum_] = f
@@ -106,11 +106,15 @@ class MultiDigitAdditionDataset(Dataset):
             ),
         )
 
+        from time import time
+        start = time()
         self.sdd_per_sum = get_sdd_for_sums(
             num_digits=self.num_digits,
             save_path=Path(__file__).parent
             / f"checkpoints/SDDs/{self.num_digits}_digits",
         )
+        end = time()
+        print(f"{num_digits}-digit SDD generation took {end-start:.4f} seconds")
 
     def __len__(self):
         return len(self.dataset) // self.num_digits
