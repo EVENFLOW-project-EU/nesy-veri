@@ -17,6 +17,10 @@ def get_sdd_for_sums(num_digits: int, save_path: os.PathLike) -> dict[int, SddNo
     # all SDDs are placed in a dict where the key is the sum for that SDD
     sdd_per_sum = {}
 
+    # if the directory for this number of SDDs does not exist, create it
+    if not save_path.exists():
+        os.makedirs(save_path)
+
     # check if the SDDs for this number of digits have been generated and saved
     all_sdds_generated = all(
         [(save_path / str(sum_)).exists() for sum_ in range(9 * num_digits + 1)]  # type: ignore
@@ -26,7 +30,7 @@ def get_sdd_for_sums(num_digits: int, save_path: os.PathLike) -> dict[int, SddNo
     if all_sdds_generated:
         vtree = Vtree.from_file(str(save_path / "vtree").encode("utf-8"))
         manager = SddManager.from_vtree(vtree) # type: ignore
-        for sum_ in track(range(9 * num_digits + 1)):
+        for sum_ in range(9 * num_digits + 1):
             filename = save_path / str(sum_)  # type: ignore
             sdd_per_sum[sum_] = manager.read_sdd_file(str(filename).encode("utf-8"))
             # TODO: do I need to minimize here and do something with the vtree ?
@@ -60,7 +64,7 @@ def get_sdd_for_sums(num_digits: int, save_path: os.PathLike) -> dict[int, SddNo
         constraints.ref()
 
         # the sum is smallest when all digits are 0 and largest when all digits are 9
-        for sum_ in track(range(9 * num_digits + 1)):
+        for sum_ in range(9 * num_digits + 1):
             filename = save_path / str(sum_)  # type: ignore
             all_worlds = product(range(10), repeat=num_digits)
             sum_worlds = filter(lambda comb: sum(comb) == sum_, all_worlds)
@@ -106,15 +110,11 @@ class MultiDigitAdditionDataset(Dataset):
             ),
         )
 
-        from time import time
-        start = time()
         self.sdd_per_sum = get_sdd_for_sums(
             num_digits=self.num_digits,
             save_path=Path(__file__).parent
             / f"checkpoints/SDDs/{self.num_digits}_digits",
         )
-        end = time()
-        print(f"{num_digits}-digit SDD generation took {end-start:.4f} seconds")
 
     def __len__(self):
         return len(self.dataset) // self.num_digits

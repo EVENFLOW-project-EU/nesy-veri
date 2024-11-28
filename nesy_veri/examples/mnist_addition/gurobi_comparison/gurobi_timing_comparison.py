@@ -1,6 +1,7 @@
 import torch
 import operator
 import numpy as np
+from time import time
 import gurobipy as gp
 from time import time
 from pathlib import Path
@@ -14,6 +15,7 @@ from auto_LiRPA import (
     register_custom_op,
 )
 
+from nesy_veri.utils import NetworksPlusCircuit
 from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
 from nesy_veri.examples.mnist_addition.network_training import get_mnist_network
 from nesy_veri.examples.mnist_addition.verification import (
@@ -172,21 +174,35 @@ if __name__ == "__main__":
     register_custom_op("onnx::Concat", CustomConcat)
 
     # declare number of MNIST digits for this experiment
-    for num_digits in [4, 3, 2]:
-
+    for num_digits in range(2, 9):
+        print(f"#digits: {num_digits:<10}", end="")
         # get the dataset for this number of digits
+        # start = time()
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
+        # end = time()
+        # print(f"{num_digits}-digit SDD generation took {end-start:.4f} seconds")
 
-        # get a bounded version of the network+circuit structre for each sum
-        # also get the indices that were classified correctly and so should be verified
-        (
-            bounded_module_per_sum,
-            correctly_classified_idxs,
-        ) = get_bounded_modules_and_samples_to_verify(
-            softmax,
-            num_digits,
-            test_dataset,
-        )
+        # for each sum, get a network+circuit module
+        # these will be used both for inference and for bound propagation
+        net_and_circuit_per_sum = {
+            sum_: NetworksPlusCircuit(
+                networks=[mnist_cnn] * num_digits,
+                circuit=sdd_,
+                softmax_net_outputs=[not softmax] * num_digits,
+                parse_to_native=True,
+            )
+            for sum_, sdd_ in test_dataset.sdd_per_sum.items()
+        }
+
+        # construct bounded module for each of the network+circuit graphs
+        bounded_module_per_sum = {
+            sum_: BoundedModule(
+                net_plus_circuit,
+                torch.empty_like(test_dataset[0][0]),
+                verbose=False,
+            )
+            for sum_, net_plus_circuit in net_and_circuit_per_sum.items()
+        }
 
         # get bounded NN
         bounded_cnn = BoundedModule(
@@ -198,10 +214,9 @@ if __name__ == "__main__":
         epsilon = 0.001
         timings_e2e = []
         timings_grb = []
-        
-        for idx in track(correctly_classified_idxs):
-            input_imgs, sum_label = test_dataset[idx]
+        grb_problematic_samples = 0
 
+        for input_imgs, sum_label in track(test_dataset):
             # create perturbed input
             ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
             ptb_input = BoundedTensor(input_imgs, ptb)
@@ -230,11 +245,12 @@ if __name__ == "__main__":
                 timings_grb.append(grb_end - grb_start)
 
             except Exception as e:
-                print(f"Sample {idx} \t error: {e}")
+                # print(f"Sample {idx} \t error: {e}")
+                grb_problematic_samples += 1
 
         print(
-            f"#digits: {num_digits:<10}",
             f"epsilon: {epsilon}  ",
             f"average E2E time: {(sum(timings_e2e) / len(timings_e2e)):.4f}",
             f"average GRB time: {(sum(timings_grb) / len(timings_grb)):.4f}",
+            f"({grb_problematic_samples} problematic samples)"
         )
