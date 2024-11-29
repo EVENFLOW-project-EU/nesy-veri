@@ -175,7 +175,6 @@ if __name__ == "__main__":
 
     # declare number of MNIST digits for this experiment
     for num_digits in range(2, 9):
-        print(f"#digits: {num_digits:<10}", end="")
         # get the dataset for this number of digits
         # start = time()
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
@@ -249,6 +248,7 @@ if __name__ == "__main__":
                 grb_problematic_samples += 1
 
         print(
+            f"#digits: {num_digits:<10}",
             f"epsilon: {epsilon}  ",
             f"average E2E time: {(sum(timings_e2e) / len(timings_e2e)):.4f}",
             f"average GRB time: {(sum(timings_grb) / len(timings_grb)):.4f}",
