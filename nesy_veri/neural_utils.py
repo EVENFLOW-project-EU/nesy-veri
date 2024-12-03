@@ -57,6 +57,9 @@ def run_dataloader(
                     loss = loss_function(outputs, labels)
                 case nn.NLLLoss():
                     loss = loss_function(torch.log(outputs), labels)
+                case nn.BCEWithLogitsLoss():
+                    loss = loss_function(outputs, labels)
+                    outputs = outputs.sigmoid()
                 case _:
                     raise (
                         ValueError(

@@ -56,6 +56,17 @@ class BDDDataset(Dataset):
                 torch.Tensor(self.concept_labels[idx]),
                 torch.Tensor(self.target_labels[idx]),
             )
+    
+    def get_class_support(self, print_: bool = True):
+        all_concepts_stacked = torch.stack([torch.Tensor(x) for x in self.concept_labels])
+        concept_occurrences = torch.sum(all_concepts_stacked, dim=0)
+        concept_support = [occ.item() / len(self) for occ in concept_occurrences]
+
+        if print_:
+            for concept in range(21):
+                print(f"concept {concept} - support = {round(concept_support[concept]*100, 2)}%")
+
+        return concept_support
 
 
 def get_BDD_constraints():
