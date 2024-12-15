@@ -1,11 +1,9 @@
 import torch
-import operator
+import statistics
 import numpy as np
-from time import time
 import gurobipy as gp
 from time import time
 from pathlib import Path
-from functools import reduce
 from pysdd.sdd import SddNode
 from rich.progress import track
 from auto_LiRPA import (
@@ -18,94 +16,10 @@ from auto_LiRPA import (
 from nesy_veri.utils import NetworksPlusCircuit
 from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
 from nesy_veri.examples.mnist_addition.network_training import get_mnist_network
-from nesy_veri.examples.mnist_addition.verification import (
-    get_bounded_modules_and_samples_to_verify,
+from nesy_veri.examples.mnist_addition.mnist_utils import MultiDigitAdditionDataset
+from nesy_veri.examples.mnist_addition.gurobi_comparison.gurobi_full_comparison import (
+    sdd_to_gurobi_model,
 )
-from nesy_veri.examples.mnist_addition.mnist_utils import (
-    MultiDigitAdditionDataset,
-)
-
-
-def sdd_to_gurobi_model(
-    node: SddNode,
-    bounds: dict[int, list[float]],
-    categorical_groups: list[list[int]],
-):
-    # create environment and model
-    env = gp.Env(empty=True)
-    env.setParam("OutputFlag", 0)
-    env.start()
-
-    model, categorical_values = (
-        gp.Model(env=env),
-        set(value for group in categorical_groups for value in group),
-    )
-
-    variable_vars = {
-        key: model.addVar(
-            lb=lb, ub=ub, vtype=gp.GRB.CONTINUOUS, name="literal:{}".format(key)
-        )
-        for key, (lb, ub) in bounds.items()
-    }
-
-    for group in categorical_groups:
-        model.addConstr(
-            reduce(operator.add, [variable_vars[var] for var in group]) == 1
-        )
-
-    def depth_first_search(node: SddNode):
-        if node.is_true():
-            # print("adding true leaf node {}".format(node.id))
-            return 1
-        elif node.is_false():
-            # print("adding false leaf node {}".format(node.id))
-            return 0
-        elif node.is_literal():
-            literal_id = abs(node.literal)
-            if node.literal > 0:
-                var = model.addVar(
-                    vtype=gp.GRB.CONTINUOUS, name="node:{}".format(node.id)
-                )
-                model.addConstr(var == variable_vars[literal_id])
-                # print("added positive literal node {}".format(node.literal))
-                return var
-            else:
-                # Negative literals of categorical variables always get 1
-                if literal_id in categorical_values:
-                    # print(
-                    #     "added negative literal node {} with value 1 (categorical)".format(
-                    #         node.literal
-                    #     )
-                    # )
-                    return 1
-
-                var = model.addVar(
-                    vtype=gp.GRB.CONTINUOUS, name="node:{}".format(node.id)
-                )
-                model.addConstr(var == 1 - variable_vars[literal_id])
-                # print("added negative literal node {} (binary)".format(node.literal))
-                return var
-
-        elif node.is_decision():
-            var = model.addVar(vtype=gp.GRB.CONTINUOUS, name="var_{}".format(node.id))
-            model.addConstr(
-                var
-                == reduce(
-                    operator.add,
-                    [
-                        operator.mul(depth_first_search(prime), depth_first_search(sub))
-                        for prime, sub in node.elements()
-                    ],
-                )
-            )
-            # print("added decision node: {}".format(node.id))
-            return var
-        else:
-            raise RuntimeError("what is happening?")
-
-    optimization_target = depth_first_search(node)
-
-    return model, optimization_target
 
 
 def get_bounds_for_sum_gurobi(
@@ -163,9 +77,9 @@ if __name__ == "__main__":
     softmax = True
     model_path = (
         Path(__file__).parent.parent
-        / f"checkpoints/model_checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+        / f"checkpoints/model_checkpoints/trained_model_1_epoch{'_softmax' if softmax else ''}.pth"
     )
-    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
+    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax, num_epochs=1)
 
     # TODO: DOES THIS NEED TO BE REPEATED?
     # let auto-LiRPA know I want to use the custom operators for bounding
@@ -174,15 +88,17 @@ if __name__ == "__main__":
     register_custom_op("onnx::Concat", CustomConcat)
 
     # declare number of MNIST digits for this experiment
-    for num_digits in range(2, 9):
-        # get the dataset for this number of digits
-        # start = time()
+    for num_digits in [2, 3, 4, 5]:
+        start = time()
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
-        # end = time()
-        # print(f"{num_digits}-digit SDD generation took {end-start:.4f} seconds")
+        end = time()
+        print(
+            f"{num_digits}-digit SDD generation took {end-start:.4f} seconds, #sums = {len(test_dataset.sdd_per_sum.keys())}"
+        )
 
         # for each sum, get a network+circuit module
         # these will be used both for inference and for bound propagation
+        start = time()
         net_and_circuit_per_sum = {
             sum_: NetworksPlusCircuit(
                 networks=[mnist_cnn] * num_digits,
@@ -192,8 +108,13 @@ if __name__ == "__main__":
             )
             for sum_, sdd_ in test_dataset.sdd_per_sum.items()
         }
+        end = time()
+        print(
+            f"Constructing the Network+Circuit for all sums took {(end-start):.4f} seconds"
+        )
 
         # construct bounded module for each of the network+circuit graphs
+        start = time()
         bounded_module_per_sum = {
             sum_: BoundedModule(
                 net_plus_circuit,
@@ -202,17 +123,26 @@ if __name__ == "__main__":
             )
             for sum_, net_plus_circuit in net_and_circuit_per_sum.items()
         }
+        end = time()
+        print(f"Getting the BoundedModule for all sums took {(end-start):.4f} seconds")
 
         # get bounded NN
+        start = time()
         bounded_cnn = BoundedModule(
             mnist_cnn,
             torch.empty_like(test_dataset[0][0][0].unsqueeze(0)),
             verbose=False,
         )
+        end = time()
+        print(f"Getting the BoundedModule for the CNN took {(end-start):.4f} seconds")
 
         epsilon = 0.001
         timings_e2e = []
         timings_grb = []
+        num_samples_robust_e2e = 0
+        num_samples_robust_grb = 0
+        lower_bounds_e2e, upper_bounds_e2e = [], []
+        lower_bounds_grb, upper_bounds_grb = [], []
         grb_problematic_samples = 0
 
         for input_imgs, sum_label in track(test_dataset):
@@ -221,17 +151,18 @@ if __name__ == "__main__":
             ptb_input = BoundedTensor(input_imgs, ptb)
 
             e2e_start = time()
-            correct_sum_lower_bound = (
-                bounded_module_per_sum[sum_label]
-                .compute_bounds(x=ptb_input, method="IBP")[0]
-                .item()
-            )
+            correct_sum_lb, correct_sum_ub = [
+                x.item()
+                for x in bounded_module_per_sum[sum_label].compute_bounds(
+                    x=ptb_input, method="IBP"
+                )
+            ]
             e2e_end = time()
 
             try:
                 # get bounds per sum for the Gurobi thing
                 grb_start = time()
-                correct_minimum, _ = get_bounds_for_sum_gurobi(
+                correct_sum_min, correct_sum_max = get_bounds_for_sum_gurobi(
                     bounded_network=bounded_cnn,
                     input_imgs=input_imgs,
                     epsilon=epsilon,
@@ -240,17 +171,42 @@ if __name__ == "__main__":
                 )
                 grb_end = time()
 
+                # update timing info
                 timings_e2e.append(e2e_end - e2e_start)
                 timings_grb.append(grb_end - grb_start)
 
+                # update robustness lists
+                num_samples_robust_e2e += (correct_sum_lb > 0.5)
+                num_samples_robust_grb += (correct_sum_min > 0.5)
+
+                # update bound lists
+                lower_bounds_e2e.append(correct_sum_lb)
+                upper_bounds_e2e.append(min(correct_sum_ub, 1))
+                lower_bounds_grb.append(correct_sum_min)
+                upper_bounds_grb.append(min(correct_sum_max, 1))
+
             except Exception as e:
-                # print(f"Sample {idx} \t error: {e}")
                 grb_problematic_samples += 1
+
+        print(
+            f"E2E - ",
+            f"mean lower: {statistics.mean(lower_bounds_e2e):.5f}, ",
+            f"mean upper: {statistics.mean(upper_bounds_e2e):.5f}, ",
+            f"mean diff: {statistics.mean([upper_bounds_e2e[i] - lower_bounds_e2e[i] for i in range(len(lower_bounds_e2e))]):.5f}",
+        )
+        print(
+            f"GRB - ",
+            f"mean lower: {statistics.mean(lower_bounds_grb):.5f}, ",
+            f"mean upper: {statistics.mean(upper_bounds_grb):.5f}, ",
+            f"mean diff: {statistics.mean([upper_bounds_grb[i] - lower_bounds_grb[i] for i in range(len(lower_bounds_grb))]):.5f}",
+        )
 
         print(
             f"#digits: {num_digits:<10}",
             f"epsilon: {epsilon}  ",
-            f"average E2E time: {(sum(timings_e2e) / len(timings_e2e)):.4f}",
-            f"average GRB time: {(sum(timings_grb) / len(timings_grb)):.4f}",
-            f"({grb_problematic_samples} problematic samples)"
+            f"average E2E time: {(sum(timings_e2e) / len(timings_e2e)):.4f}   ",
+            f"average GRB time: {(sum(timings_grb) / len(timings_grb)):.4f}   ",
+            f"robustness(E2E): {round(((num_samples_robust_e2e / len(test_dataset))*100), 2)}%   ",
+            f"robustness(GRB): {round(((num_samples_robust_grb / len(test_dataset))*100), 2)}%   ",
+            f"({grb_problematic_samples} problematic samples)",
         )
