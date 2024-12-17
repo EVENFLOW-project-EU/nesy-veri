@@ -88,6 +88,7 @@ def train_mnist_network(
             loss_function,
             metrics,
             train=True,
+            device="cpu"
         )
         mnist_net = run_dataloader(
             mnist_net,
@@ -98,6 +99,7 @@ def train_mnist_network(
             loss_function,
             metrics,
             train=False,
+            device="cpu"
         )
 
     # save model parameters to avoid retraining

@@ -21,6 +21,7 @@ def run_dataloader(
     loss_function,
     metrics,
     train,
+    device,
 ):
     progress_bar = Progress(
         SpinnerColumn(),
@@ -48,6 +49,7 @@ def run_dataloader(
 
     with progress_bar as progress:
         for idx, (inputs, labels) in enumerate(dataloader):
+            inputs, labels = inputs.to(device), labels.to(device)
             outputs = network(inputs)
 
             match loss_function:
