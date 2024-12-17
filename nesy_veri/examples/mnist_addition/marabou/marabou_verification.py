@@ -16,7 +16,6 @@ from nesy_veri.examples.mnist_addition.mnist_utils import (
 
 
 def create_and_save_onnx(
-    softmax: bool,
     num_digits: int,
     save_dir: os.PathLike,
     sdd_per_sum: dict[int, SddNode],
@@ -26,9 +25,9 @@ def create_and_save_onnx(
     this_dir = Path(__file__).parent
     model_path = (
         this_dir.parent
-        / f"checkpoints/model_checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+        / "checkpoints/model_checkpoints/trained_model_softmax.pth"
     )
-    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
+    mnist_cnn = get_mnist_network(model_path=model_path)
 
     # for each sum, get a network+circuit module
     # these will be used both for inference and for bound propagation
@@ -54,7 +53,6 @@ def create_and_save_onnx(
 
 if __name__ == "__main__":
     # set global parameters
-    softmax = True
     num_digits = 2
     save_onnx_dir = Path(__file__).parent / f"onnx_graphs/mnist/{num_digits}_digits"
 
@@ -63,7 +61,6 @@ if __name__ == "__main__":
 
     # get the network+circuit graph for all sums and save them all in .onnx files
     net_and_circuit_per_sum = create_and_save_onnx(
-        softmax=softmax,
         num_digits=num_digits,
         save_dir=save_onnx_dir,
         sdd_per_sum=test_dataset.sdd_per_sum,
@@ -78,7 +75,7 @@ if __name__ == "__main__":
         Path(__file__).parent.parent / "checkpoints/correctly_classified_examples"
     )
     correctly_classified_idxs = get_correctly_classified_examples(
-        test_dataset, net_and_circuit_per_sum, results_path, softmax, num_digits
+        test_dataset, net_and_circuit_per_sum, results_path, num_digits
     )
 
     # create a Marabou network for each of the ONNX graphs saved

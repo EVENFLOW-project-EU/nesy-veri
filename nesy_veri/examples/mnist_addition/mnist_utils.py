@@ -133,11 +133,10 @@ def get_correctly_classified_examples(
     test_dataset: Dataset,
     net_and_circuit_per_sum: dict[int, NetworksPlusCircuit],
     results_path: os.PathLike,
-    softmax: bool,
     num_digits: int,
 ):
     print()
-    filename = f"{num_digits}_digits{'_softmax' if softmax else ''}.csv"
+    filename = f"{num_digits}_digits_softmax.csv"
     correct_images_path = results_path / filename  # type: ignore
 
     # if the list has already been generated just load it

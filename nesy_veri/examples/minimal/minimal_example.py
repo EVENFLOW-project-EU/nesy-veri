@@ -19,13 +19,13 @@ from nesy_veri.examples.mnist_addition.mnist_utils import (
 
 
 def get_bounded_modules_and_samples_to_verify(
-    softmax: bool, num_digits: int, test_dataset: MultiDigitAdditionDataset
+    num_digits: int, test_dataset: MultiDigitAdditionDataset
 ):
     model_path = (
         Path(__file__).parent.parent
-        / f"mnist_addition/checkpoints/model_checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+        / "mnist_addition/checkpoints/model_checkpoints/trained_model_softmax.pth"
     )
-    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
+    mnist_cnn = get_mnist_network(model_path=model_path)
 
     # for each sum, get a network+circuit module
     # these will be used both for inference and for bound propagation
@@ -33,7 +33,7 @@ def get_bounded_modules_and_samples_to_verify(
         sum_: NetworksPlusCircuit(
             networks=[mnist_cnn] * num_digits,
             circuit=sdd_,
-            categorical_idxs=[x + 1 for x in range(num_digits*10)],
+            categorical_idxs=[x + 1 for x in range(num_digits * 10)],
             parse_to_native=True,
         )
         for sum_, sdd_ in test_dataset.sdd_per_sum.items()
@@ -41,9 +41,12 @@ def get_bounded_modules_and_samples_to_verify(
 
     # get the dataset examples that were classified correctly
     # only there we perform verification for now
-    results_path = Path(__file__).parent.parent / "mnist_addition/checkpoints/correctly_classified_examples"
+    results_path = (
+        Path(__file__).parent.parent
+        / "mnist_addition/checkpoints/correctly_classified_examples"
+    )
     correctly_classified_idxs = get_correctly_classified_examples(
-        test_dataset, net_and_circuit_per_sum, results_path, softmax, num_digits
+        test_dataset, net_and_circuit_per_sum, results_path, num_digits
     )
 
     # let auto-LiRPA know I want to use the custom operators for bounding
@@ -66,7 +69,6 @@ def get_bounded_modules_and_samples_to_verify(
 
 if __name__ == "__main__":
     # declare global variables
-    softmax = True
     num_digits = 2
     epsilon = 0.001
 
@@ -78,11 +80,7 @@ if __name__ == "__main__":
     (
         bounded_module_per_sum,
         correctly_classified_idxs,
-    ) = get_bounded_modules_and_samples_to_verify(
-        softmax,
-        num_digits,
-        test_dataset,
-    )
+    ) = get_bounded_modules_and_samples_to_verify(num_digits, test_dataset)
 
     num_samples_checked = 0
     num_samples_robust = 0
@@ -102,9 +100,7 @@ if __name__ == "__main__":
         bounds_per_sum = {
             sum_: [
                 bound.item()
-                for bound in bounded_module.compute_bounds(
-                    x=ptb_input, method="IBP"
-                )
+                for bound in bounded_module.compute_bounds(x=ptb_input, method="IBP")
             ]
             for sum_, bounded_module in bounded_module_per_sum.items()
         }

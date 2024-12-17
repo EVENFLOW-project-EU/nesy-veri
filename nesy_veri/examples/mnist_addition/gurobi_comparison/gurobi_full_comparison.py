@@ -158,12 +158,11 @@ if __name__ == "__main__":
     torch.set_num_threads(1)
 
     # get trained CNN
-    softmax = True
     model_path = (
         Path(__file__).parent.parent
-        / f"checkpoints/model_checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+        / "checkpoints/model_checkpoints/trained_modelsoftmax.pth"
     )
-    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
+    mnist_cnn = get_mnist_network(model_path=model_path)
 
     # TODO: DOES THIS NEED TO BE REPEATED?
     # let auto-LiRPA know I want to use the custom operators for bounding

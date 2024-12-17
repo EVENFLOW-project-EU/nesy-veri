@@ -19,13 +19,13 @@ from nesy_veri.examples.mnist_addition.mnist_utils import (
 
 
 def get_bounded_modules_and_samples_to_verify(
-    softmax: bool, num_digits: int, test_dataset: MultiDigitAdditionDataset
+    num_digits: int, test_dataset: MultiDigitAdditionDataset
 ):
     model_path = (
         Path(__file__).parent
-        / f"checkpoints/model_checkpoints/trained_model{'_softmax' if softmax else ''}.pth"
+        / "checkpoints/model_checkpoints/trained_model_softmax.pth"
     )
-    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax)
+    mnist_cnn = get_mnist_network(model_path=model_path)
 
     # for each sum, get a network+circuit module
     # these will be used both for inference and for bound propagation
@@ -33,7 +33,7 @@ def get_bounded_modules_and_samples_to_verify(
         sum_: NetworksPlusCircuit(
             networks=[mnist_cnn] * num_digits,
             circuit=sdd_,
-            categorical_idxs=[x + 1 for x in range(num_digits*10)],
+            categorical_idxs=[x + 1 for x in range(num_digits * 10)],
             parse_to_native=True,
         )
         for sum_, sdd_ in test_dataset.sdd_per_sum.items()
@@ -43,7 +43,7 @@ def get_bounded_modules_and_samples_to_verify(
     # only there we perform verification for now
     results_path = Path(__file__).parent / "checkpoints/correctly_classified_examples"
     correctly_classified_idxs = get_correctly_classified_examples(
-        test_dataset, net_and_circuit_per_sum, results_path, softmax, num_digits
+        test_dataset, net_and_circuit_per_sum, results_path, num_digits
     )
 
     # let auto-LiRPA know I want to use the custom operators for bounding
@@ -65,8 +65,6 @@ def get_bounded_modules_and_samples_to_verify(
 
 
 if __name__ == "__main__":
-    # get trained CNN
-    softmax = True
 
     # declare number of MNIST digits for this experiment
     for num_digits in [2, 3]:
@@ -79,11 +77,7 @@ if __name__ == "__main__":
         (
             bounded_module_per_sum,
             correctly_classified_idxs,
-        ) = get_bounded_modules_and_samples_to_verify(
-            softmax,
-            num_digits,
-            test_dataset,
-        )
+        ) = get_bounded_modules_and_samples_to_verify(num_digits, test_dataset)
 
         # check what happens for several epsilons
         for epsilon in [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]:

@@ -39,7 +39,6 @@ class MNIST_Net(nn.Module):
 
 def train_mnist_network(
     save_model_path: os.PathLike,
-    softmax: bool = True,
     batch_size: int = 32,
     num_epochs: int = 10,
     lr: float = 1e-3,
@@ -57,9 +56,9 @@ def train_mnist_network(
     train_dl = DataLoader(train_dataset, batch_size, shuffle=True)
     test_dl = DataLoader(test_dataset, batch_size, shuffle=True)
 
-    mnist_net = MNIST_Net(softmax=softmax)
+    mnist_net = MNIST_Net()
     optimizer = optim.Adam(mnist_net.parameters(), lr=lr)
-    loss_function = nn.NLLLoss() if softmax else nn.CrossEntropyLoss()
+    loss_function = nn.NLLLoss()
 
     metrics = {
         "f1-macro": torchmetrics.F1Score(
@@ -88,7 +87,7 @@ def train_mnist_network(
             loss_function,
             metrics,
             train=True,
-            device="cpu"
+            device="cpu",
         )
         mnist_net = run_dataloader(
             mnist_net,
@@ -99,23 +98,19 @@ def train_mnist_network(
             loss_function,
             metrics,
             train=False,
-            device="cpu"
+            device="cpu",
         )
 
     # save model parameters to avoid retraining
     torch.save(mnist_net.state_dict(), save_model_path)
 
 
-def get_mnist_network(model_path: os.PathLike, softmax: bool, num_epochs: int = 10):
-    mnist_net = MNIST_Net(softmax=softmax)
+def get_mnist_network(model_path: os.PathLike, num_epochs: int = 10):
+    mnist_net = MNIST_Net()
 
     # if the trained network hasn't been saved, train and save it
     if not os.path.exists(model_path):
-        train_mnist_network(
-            save_model_path=model_path,
-            softmax=softmax,
-            num_epochs=num_epochs,
-        )
+        train_mnist_network(model_path, num_epochs)
 
     mnist_net.load_state_dict(torch.load(model_path, weights_only=True))
     mnist_net.eval()

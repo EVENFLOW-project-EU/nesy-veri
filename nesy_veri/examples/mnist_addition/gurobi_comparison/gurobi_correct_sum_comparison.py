@@ -74,12 +74,11 @@ def get_bounds_for_sum_gurobi(
 
 if __name__ == "__main__":
     # get trained CNN
-    softmax = True
     model_path = (
         Path(__file__).parent.parent
-        / f"checkpoints/model_checkpoints/trained_model_1_epoch{'_softmax' if softmax else ''}.pth"
+        / "checkpoints/model_checkpoints/trained_model_1_epoch_softmax.pth"
     )
-    mnist_cnn = get_mnist_network(model_path=model_path, softmax=softmax, num_epochs=1)
+    mnist_cnn = get_mnist_network(model_path=model_path, num_epochs=1)
 
     # TODO: DOES THIS NEED TO BE REPEATED?
     # let auto-LiRPA know I want to use the custom operators for bounding
