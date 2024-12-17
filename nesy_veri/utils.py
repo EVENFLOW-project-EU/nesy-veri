@@ -11,32 +11,35 @@ class NetworksPlusCircuit(nn.Module):
     def __init__(
         self,
         networks: list[nn.Module],
-        softmax_net_outputs: list[bool],
         circuit: SddNode,
+        categorical_idxs: list[int],
         parse_to_native: bool = True,
     ):
         super().__init__()
+        self.categorical_idxs = categorical_idxs
         self.networks = nn.ModuleList(networks)
-        self.softmax_net_outputs = softmax_net_outputs
         self.circuit = circuit if not parse_to_native else sdd_parse_native(circuit)
 
     def forward(self, x):
         # evaluate the neural networks
-        # the ith network is evaluated on the ith input, and possibly softmaxed
+        # the ith network is evaluated on the ith input
         network_outputs = [
-            (
-                self.networks[i](x[i].unsqueeze(0)).softmax(dim=1)
-                if self.softmax_net_outputs[i]
-                else self.networks[i](x[i].unsqueeze(0))
-            )
-            for i in range(len(self.networks))
+            self.networks[i](x[i].unsqueeze(0)) for i in range(len(self.networks))
         ]
 
         # concatenate the network outputs and flatten to pass to SDD
         sdd_input = torch.cat(network_outputs, dim=1).squeeze(0)
-        
+
         # evaluate the SDD on the NN outputs
-        sdd_output = eval_sdd(self.circuit, operator.add, operator.mul, 0, 1, sdd_input)
+        sdd_output = eval_sdd(
+            node=self.circuit,
+            add=operator.add,
+            mul=operator.mul,
+            add_neutral=0,
+            mul_neutral=1,
+            labelling=sdd_input,
+            categorical_idxs= self.categorical_idxs,
+        )
 
         return sdd_output
 
@@ -77,7 +80,8 @@ def eval_sdd(
     mul: Callable[[T, T], T],
     add_neutral: T,
     mul_neutral: T,
-    labelling: list[T],
+    labelling: torch.Tensor,
+    categorical_idxs: list[int],
 ) -> T:
 
     def do_eval(n: decision_node | int | bool) -> T:
@@ -87,7 +91,9 @@ def eval_sdd(
         elif n is False:
             return add_neutral
         elif isinstance(n, int):
-            return labelling[abs(n) - 1] if n > 0 else 1
+            if abs(n) in categorical_idxs:
+                return labelling[abs(n) - 1] if n > 0 else 1
+            return labelling[abs(n) - 1] if n > 0 else 1 - labelling[abs(n) - 1]
         else:
             children_values = []
             for p in n.children:

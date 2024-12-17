@@ -33,7 +33,7 @@ def get_bounded_modules_and_samples_to_verify(
         sum_: NetworksPlusCircuit(
             networks=[mnist_cnn] * num_digits,
             circuit=sdd_,
-            softmax_net_outputs=[not softmax] * num_digits,
+            categorical_idxs=[x + 1 for x in range(num_digits*10)],
             parse_to_native=True,
         )
         for sum_, sdd_ in test_dataset.sdd_per_sum.items()
