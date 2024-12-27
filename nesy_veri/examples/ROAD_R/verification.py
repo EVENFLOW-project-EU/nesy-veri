@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from torch import nn
 from pathlib import Path
 from auto_LiRPA import (
     BoundedModule,
@@ -8,60 +7,96 @@ from auto_LiRPA import (
     PerturbationLpNorm,
     register_custom_op,
 )
+from rich.progress import track
+from torch.utils.data import random_split
 
-from nesy_veri.examples.ROAD_R.network_training import get_road_networks, get_road_resnets
+from nesy_veri.examples.ROAD_R.network_training import get_road_network
 from nesy_veri.examples.ROAD_R.road_utils import ROADRPropositional, get_road_constraint
 from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
 from nesy_veri.utils import NetworksPlusCircuit
 
 
 if __name__ == "__main__":
-    test_dataset = ROADRPropositional(
-        dataset_path=Path(__file__).parents[-2] / "nmanginas/road/dataset",
-        train=False,
-        label_level="both",
-        sample_every_n=50,
+    sample_every_n = 24
+    downsample_img_by = 4
+    num_epochs_objects = 20
+    num_epochs_actions = 10
+    model_dir = Path(__file__).parent / "checkpoints/model_checkpoints"
+    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+
+    object_net = get_road_network(
+        model_dir,
+        "objects",
+        sample_every_n,
+        downsample_img_by,
+        device,
+        num_epochs_objects,
     )
 
-    object_net, action_net = get_road_resnets()
-    object_net.fc = nn.Sequential(object_net.fc, nn.Sigmoid())
-    # action_net.fc = nn.Sequential(action_net.fc, nn.Sigmoid())
+    action_net = get_road_network(
+        model_dir,
+        "actions",
+        sample_every_n,
+        downsample_img_by,
+        device,
+        num_epochs_actions,
+    )
 
-    test_input = test_dataset[0][0].unsqueeze(0)
-    epsilon = 0.00001
-    ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
-    ptb_input = BoundedTensor(test_input, ptb)
-    bounded = BoundedModule(
-        object_net,
+    gen = torch.Generator()
+    gen.manual_seed(0)
+
+    dataset = ROADRPropositional(
+        dataset_path=Path(__file__).parents[3] / "dataset",
+        subset="all",
+        label_level="both",
+        sample_every_n=sample_every_n,
+        downsample_img_by=downsample_img_by,
+        balance_feature_dataset=False,
+    )
+
+    _, test_dataset = random_split(dataset, [0.8, 0.2], generator=gen)
+
+    nets_and_circuit = NetworksPlusCircuit(
+        networks=[object_net, action_net],
+        circuit=get_road_constraint(),
+        categorical_idxs=[3, 4],
+        parse_to_native=True,
+    )
+
+    safe_idxs = [
+        idx
+        for idx, (input_img, _) in enumerate(test_dataset)
+        if nets_and_circuit(torch.stack([input_img] * 2)) > 0.5
+    ]
+
+    register_custom_op("onnx::Softmax", CustomBoundSoftmax)
+    register_custom_op("onnx::Concat", CustomConcat)
+
+    test_input = torch.stack([test_dataset[0][0]] * 2)
+    # torch.onnx.export(nets_and_circuit, test_input, "full.onnx")
+    bounded_module = BoundedModule(
+        nets_and_circuit,
         torch.empty_like(test_input),
         verbose=True,
     )
 
-    from auto_LiRPA.operators.pooling import bound_backward
+    for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]:
 
-    bounded.compute_bounds(x=ptb_input, method="Forward+Backward")
+        num_samples_robust = 0
 
-    # nets_and_circuit = NetworksPlusCircuit(
-    #     networks=[object_net, action_net],
-    #     circuit=get_road_constraint(),
-    #     categorical_idxs=[3, 4],
-    #     parse_to_native=True,
-    # )
+        for idx in track(safe_idxs):
+            input_img, labels = test_dataset[idx]
 
+            ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
+            ptb_input = BoundedTensor(torch.stack([input_img] * 2), ptb)
 
-    # register_custom_op("onnx::Softmax", CustomBoundSoftmax)
-    # register_custom_op("onnx::Concat", CustomConcat)
+            lb, ub = bounded_module.compute_bounds(x=ptb_input, method="IBP")
 
-    # test_input = torch.stack([test_dataset[0][0]] * 2)
-    # torch.onnx.export(nets_and_circuit, test_input, "pls.onnx")
-    # bounded = BoundedModule(
-    #     nets_and_circuit,
-    #     torch.empty_like(test_input),
-    #     verbose=True,
-    # )
+            num_samples_robust += lb.item() > 0.5
 
-    # epsilon = 0.00001
-    # ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
-    # ptb_input = BoundedTensor(test_input, ptb)
-
-    # bounded.compute_bounds(x=ptb_input, method="IBP")
+        print(
+            f"Epsilon: {epsilon:<15}",
+            f"#total: {len(test_dataset)}, \t ",
+            f"#correct: {len(safe_idxs)}, {round(((len(safe_idxs) / len(test_dataset))*100), 2)}% \t ",
+            f"#robust correct: {num_samples_robust}, {round(((num_samples_robust / len(test_dataset))*100), 2)}% ",
+        )
