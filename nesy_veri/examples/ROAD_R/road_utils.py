@@ -7,7 +7,6 @@ from pysdd.sdd import SddManager
 from torch.utils.data import Dataset
 from torchvision.io import read_image
 from torchvision.transforms import Resize
-import torchvision.transforms as transforms
 
 
 def frame_has_pedestrian_in_front(frame):
@@ -57,7 +56,7 @@ class ROADRPropositional(Dataset):
         downsample_img_by: int,
         balance_feature_dataset: bool,
     ):
-        assert subset in ["train", "val", "test"]
+        assert subset in ["train", "val", "test", "all"]
 
         # this controls what __getitem__ will return
         assert label_level in ["objects", "actions", "both"]
@@ -103,7 +102,7 @@ class ROADRPropositional(Dataset):
             "val": [
                 "2014-11-14-16-34-33_stereo_centre_06",
                 "2014-11-18-13-20-12_stereo_centre_05",
-                "2014-11-21-16-07-03_stereo_centre_01"
+                "2014-11-21-16-07-03_stereo_centre_01",
             ],
             "test": [
                 "2014-06-26-09-53-12_stereo_centre_02",
@@ -113,9 +112,14 @@ class ROADRPropositional(Dataset):
             ],
         }
 
+        video_ids = (
+            reduce(lambda x, y: x + y, video_names.values())
+            if subset == "all"
+            else video_names[subset]
+        )
+
         video_data = {
-            video_id: annotation_data["db"][video_id]
-            for video_id in video_names[subset]
+            video_id: annotation_data["db"][video_id] for video_id in video_ids
         }
 
         for video_id, video in video_data.items():
@@ -201,12 +205,14 @@ class ROADRPropositional(Dataset):
         self.labels = new_labels
 
     def get_object_support(self):
-        all_occurrences = torch.stack([torch.Tensor(x) for x in self.features]).sum(dim=0)
-        return all_occurrences / len(self)
+        all_occurrences = torch.stack([torch.Tensor(x) for x in self.features])
+        summed_per_class = all_occurrences.sum(dim=0)
+        return summed_per_class / len(self)
 
     def get_action_support(self):
-        all_occurrences = torch.stack([torch.Tensor(x) for x in self.labels]).sum(dim=0) 
-        return all_occurrences / len(self)
+        all_occurrences = torch.stack([torch.Tensor(x) for x in self.labels])
+        summed_per_class = all_occurrences.sum(dim=0)
+        return summed_per_class / len(self)
 
     def print_action_support_per_video(self):
         print("\t\t\t\t\t\t", end="")
@@ -214,7 +220,7 @@ class ROADRPropositional(Dataset):
         for video_id, video in self.annotation_data["db"].items():
             print(video_id, end="\t\t")
             for k in [0, 1, 2, 3, 4, 5, 6, 7]:
-                print(Counter(video['frame_labels'])[k], end="\t\t")
+                print(Counter(video["frame_labels"])[k], end="\t\t")
             print()
 
 

@@ -47,6 +47,8 @@ def run_dataloader(
         loss=0,
     )
 
+    network.train() if train else network.eval()
+
     with progress_bar as progress:
         for idx, (inputs, labels) in enumerate(dataloader):
             inputs, labels = inputs.to(device), labels.to(device)
@@ -58,7 +60,9 @@ def run_dataloader(
                 case nn.BCELoss():
                     loss = loss_function(outputs, labels)
                 case nn.NLLLoss():
-                    loss = loss_function(torch.log(outputs), labels)
+                    # this expects 1D labels, not one-hot, so correct for ROAD-R
+                    # and re-correct if necessary for something else
+                    loss = loss_function(torch.log(outputs), labels.argmax(dim=1))
                 case nn.BCEWithLogitsLoss():
                     loss = loss_function(outputs, labels)
                     outputs = outputs.sigmoid()
