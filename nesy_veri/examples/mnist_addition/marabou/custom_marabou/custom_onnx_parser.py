@@ -1,11 +1,10 @@
-from maraboupy import MarabouUtils
-from maraboupy.parsers.ONNXParser import ONNXParser
-
-from maraboupy.parsers.InputQueryBuilder import InputQueryBuilder
 import numpy as np
 from typing import List
+from maraboupy import MarabouUtils
 from onnx.helper import get_attribute_value
 from onnx.reference.ops._op_list import Gather, Split_18 # type: ignore
+from maraboupy.parsers.InputQueryBuilder import InputQueryBuilder
+from maraboupy.parsers.ONNXParser import ONNXParser, getBroadcastShape
 
 
 class CustomONNXParser(ONNXParser):
@@ -141,8 +140,10 @@ class CustomONNXParser(ONNXParser):
 
         if node.op_type == 'Mul':
             self.mulEquations(node, makeEquations)
-        elif node.op_type == 'Split':
-            self.splitEquations(node, nodeName, makeEquations)
+        elif node.op_type == 'Sub':
+            self.subEquations(node, makeEquations)
+        # elif node.op_type == 'Split':
+        #     self.splitEquations(node, nodeName, makeEquations)
         elif node.op_type == 'Gather':
             self.gather(node)
         else:
@@ -174,93 +175,75 @@ class CustomONNXParser(ONNXParser):
             self.shapeMap[nodeName] = output_data.shape
             self.constantMap[nodeName] = output_data
 
-    def splitEquations(self, node, nodeName, makeEquations):
-        """Function to generate equations corresponding to split
-
-        Args:
-            node (node): ONNX node representing the Split operation
-            nodeName (str): Name of target node
-            makeEquations (bool): True if we need to create new variables and write Marabou equations
-
-        :meta private:
-        """
-        # Get attributes
-        axis = None
-        split = None
-        for attr in node.attribute:
-            if attr.name == "axis":
-                axis = get_attribute_value(attr)
-            if attr.name == "split":
-                split = get_attribute_value(attr)
-
-        inputName = node.input[0]
-        inputVars = Split_18.eval(self.varMap[inputName], split=split, axis=axis)
-
-        assert len(inputVars) == len(node.output)
-
-        # Set a shape of target output
-        for i in range(len(node.output)):
-            if node.output[i] == nodeName:
-                if inputName == self.graph.input[0].name:
-                    self.shapeMap[node.output[i]] = (
-                        np.expand_dims(inputVars[i], axis=0)
-                    ).shape
-                else:
-                    self.shapeMap[node.output[i]] = inputVars[i].shape
-                break
-
-        if not makeEquations:
-            return
-
-        # Get variables and add quations
-        for i in range(len(node.output)):
-            if node.output[i] == nodeName:
-                reshapedInputVars = inputVars[i].reshape(-1)
-                outputVars = self.makeNewVariables(node.output[i]).reshape(-1)
-                for j in range(len(reshapedInputVars)):
-                    # Add equation
-                    e = MarabouUtils.Equation()
-                    e.addAddend(1, reshapedInputVars[j])
-                    e.addAddend(-1, outputVars[j])
-                    e.setScalar(0)
-                    self.query.addEquation(e)
-                break
-
     def mulEquations(self, node, makeEquations):
         nodeName = node.output[0]
 
         # Get the inputs
         inputName1, inputName2 = node.input
         shape1 = self.shapeMap[inputName1]
-        # shape2 = self.shapeMap[inputName2] # comment out since this is never used.
+        shape2 = self.shapeMap[inputName2]
 
         # Get the broadcasted shape
-        outShape = shape1
+        outShape = getBroadcastShape(shape1, shape2)
         self.shapeMap[nodeName] = outShape
         if not makeEquations:
             return
 
+        # Decide which inputs are variables and which are constants
+        firstInputConstant = False; secondInputConstant = False
         if inputName1 in self.constantMap:
+            firstInputConstant = True
             input1 = self.constantMap[inputName1]
         else:
             input1 = self.varMap[inputName1]
 
         if inputName2 in self.constantMap:
+            secondInputConstant = True
             input2 = self.constantMap[inputName2]
         else:
             input2 = self.varMap[inputName2]
 
-        outputVariables = self.makeNewVariables(nodeName)
-        input1 = input1.reshape(-1)
-        outputVariables = outputVariables.reshape(-1)
+        # Broadcast inputs to ensure the shapes match
+        input1 = np.broadcast_to(input1, outShape)
+        input2 = np.broadcast_to(input2, outShape)
 
-        for i in range(len(input1)):
+        # The shape after broadcasting must match
+        assert input1.shape == input2.shape
+
+        # If both inputs to add are constant, then the output is constant too
+        # No new variables are needed, we just need to store the output in constantMap
+        if firstInputConstant and secondInputConstant:
+            self.constantMap[nodeName] = input1 * input2
+            return
+
+        # If both inputs are variables, then we need a new variable to represent
+        # the sum of the two variables
+        elif not firstInputConstant and not secondInputConstant:
+            outputVariables = self.makeNewVariables(nodeName)
+            input1 = input1.reshape(-1)
+            input2 = input2.reshape(-1)
+            outputVariables = outputVariables.reshape(-1)
+            for i in range(len(input1)):
+                self.query.addBilinear(input1[i], input2[i], outputVariables[i])
+            return
+
+        # Otherwise, we are multiplying constants with variables.
+        if firstInputConstant:
+            constInput = input1
+            varInput = input2
+        else:
+            constInput = input2
+            varInput = input1
+        constInput = constInput.reshape(-1)
+        varInput = varInput.reshape(-1)
+
+        outputVariables = self.makeNewVariables(nodeName).reshape(-1)
+        for i in range(len(outputVariables)):
             e = MarabouUtils.Equation()
-            e.addAddend(input2, input1[i])
+            e.addAddend(constInput[i], varInput[i])
             e.addAddend(-1, outputVariables[i])
             e.setScalar(0.0)
             self.query.addEquation(e)
-        return
 
     def makeNewVariables(self, nodeName):
         """Assuming the node's shape is known, return a set of new variables in the same shape
@@ -280,6 +263,90 @@ class CustomONNXParser(ONNXParser):
         self.varMap[nodeName] = v
         assert all([np.equal(np.mod(i, 1), 0) for i in v.reshape(-1)]) # check if integers
         return v
+
+    def subEquations(self, node, makeEquations):
+        """Function to generate equations corresponding to subtraction
+
+        Args:
+            node (node): ONNX node representing the Sub operation
+            makeEquations (bool): True if we need to create new variables and add new Relus
+
+        :meta private:
+        """
+        nodeName = node.output[0]
+
+        # Get the inputs
+        inputName1, inputName2 = node.input
+        shape1 = self.shapeMap[inputName1]
+        shape2 = self.shapeMap[inputName2]
+
+        # Get the broadcasted shape
+        outShape = getBroadcastShape(shape1, shape2)
+        self.shapeMap[nodeName] = outShape
+        if not makeEquations:
+            return
+
+        # Decide which inputs are variables and which are constants
+        firstInputConstant = False; secondInputConstant = False
+        if inputName1 in self.constantMap:
+            firstInputConstant = True
+            input1 = self.constantMap[inputName1]
+        else:
+            input1 = self.varMap[inputName1]
+
+        if inputName2 in self.constantMap:
+            secondInputConstant = True
+            input2 = self.constantMap[inputName2]
+        else:
+            input2 = self.varMap[inputName2]
+
+        # Broadcast inputs to ensure the shapes match
+        input1 = np.broadcast_to(input1, outShape)
+        input2 = np.broadcast_to(input2, outShape)
+
+        # The shape after broadcasting must match
+        assert input1.shape == input2.shape
+
+        # If both inputs to add are constant, then the output is constant too
+        # No new variables are needed, we just need to store the output in constantMap
+        if firstInputConstant and secondInputConstant:
+            self.constantMap[nodeName] = input1 - input2
+            return
+
+        # If both inputs are variables, then we need a new variable to represent
+        # the sum of the two variables
+        elif not firstInputConstant and not secondInputConstant:
+            outputVariables = self.makeNewVariables(nodeName)
+            input1 = input1.reshape(-1)
+            input2 = input2.reshape(-1)
+            outputVariables = outputVariables.reshape(-1)
+            for i in range(len(input1)):
+                e = MarabouUtils.Equation()
+                e.addAddend(1, input1[i])
+                e.addAddend(-1, input2[i])
+                e.addAddend(-1, outputVariables[i])
+                e.setScalar(0.0)
+                self.query.addEquation(e)
+            return
+
+        # Otherwise, we are subtracting constants and variables.
+        if firstInputConstant:
+            constInput = input1
+            varInput = input2
+        else:
+            constInput = input2
+            varInput = input1
+        constInput = constInput.reshape(-1)
+        varInput = varInput.reshape(-1)
+
+        outputVariables = self.makeNewVariables(nodeName).reshape(-1)
+        for i in range(len(outputVariables)):
+            e = MarabouUtils.Equation()
+            e.addAddend(1, varInput[i])
+            e.addAddend(1, outputVariables[i])
+            e.setScalar(constInput[i])
+            self.query.addEquation(e)
+
 
     # # TODO: maybe not needed? Try without first
     # def concatEquations(self, node):
@@ -317,37 +384,91 @@ class CustomONNXParser(ONNXParser):
     #             "Concat inputs need to be all variables or all constants."
     #         )
 
-    # # TODO: maybe not needed? Try without first
-    # def subEquations(self, node, makeEquations):
-    #     """Function to generate equations corresponding to subtraction
+    # def splitEquations(self, node, nodeName, makeEquations):
+    #     """Function to generate equations corresponding to split
 
     #     Args:
-    #         node (node): ONNX node representing the Sub operation
-    #         makeEquations (bool): True if we need to create new variables and add new Relus
+    #         node (node): ONNX node representing the Split operation
+    #         nodeName (str): Name of target node
+    #         makeEquations (bool): True if we need to create new variables and write Marabou equations
 
     #     :meta private:
     #     """
-    #     nodeName = node.output[0]
-    #     inputName1, inputName2 = node.input[1], node.input[0]
-    #     assert inputName1 in self.shapeMap and inputName2 in self.shapeMap
-    #     assert self.shapeMap[inputName1] == self.shapeMap[inputName2]
-    #     self.shapeMap[nodeName] = self.shapeMap[inputName1]
+    #     # Get attributes
+    #     axis = None
+    #     split = None
+    #     for attr in node.attribute:
+    #         if attr.name == "axis":
+    #             axis = get_attribute_value(attr)
+    #         if attr.name == "split":
+    #             split = get_attribute_value(attr)
+
+    #     inputName = node.input[0]
+    #     inputVars = Split_18.eval(self.varMap[inputName], split=split, axis=axis)
+
+    #     assert len(inputVars) == len(node.output)
+
+    #     # Set a shape of target output
+    #     for i in range(len(node.output)):
+    #         if node.output[i] == nodeName:
+    #             if inputName == self.graph.input[0].name:
+    #                 self.shapeMap[node.output[i]] = (
+    #                     np.expand_dims(inputVars[i], axis=0)
+    #                 ).shape
+    #             else:
+    #                 self.shapeMap[node.output[i]] = inputVars[i].shape
+    #             break
 
     #     if not makeEquations:
     #         return
 
-    #     assert inputName1 in self.varMap and inputName2 in self.constantMap
+    #     # Get variables and add quations
+    #     for i in range(len(node.output)):
+    #         if node.output[i] == nodeName:
+    #             reshapedInputVars = inputVars[i].reshape(-1)
+    #             outputVars = self.makeNewVariables(node.output[i]).reshape(-1)
+    #             for j in range(len(reshapedInputVars)):
+    #                 # Add equation
+    #                 e = MarabouUtils.Equation()
+    #                 e.addAddend(1, reshapedInputVars[j])
+    #                 e.addAddend(-1, outputVars[j])
+    #                 e.setScalar(0)
+    #                 self.query.addEquation(e)
+    #             break
 
-    #     # Get variables
-    #     inputVars = self.varMap[inputName1].reshape(-1)
-    #     outputVars = self.makeNewVariables(nodeName).reshape(-1)
-    #     constants = self.constantMap[inputName2].reshape(-1)
-    #     assert len(inputVars) == len(outputVars) == len(constants)
+    # def mulEquationsOld(self, node, makeEquations):
+    #     nodeName = node.output[0]
 
-    #     # Generate equations
-    #     for i in range(len(inputVars)):
+    #     # Get the inputs
+    #     inputName1, inputName2 = node.input
+    #     shape1 = self.shapeMap[inputName1]
+    #     # shape2 = self.shapeMap[inputName2] # comment out since this is never used.
+
+    #     # Get the broadcasted shape
+    #     outShape = shape1
+    #     self.shapeMap[nodeName] = outShape
+    #     if not makeEquations:
+    #         return
+
+    #     if inputName1 in self.constantMap:
+    #         input1 = self.constantMap[inputName1]
+    #     else:
+    #         input1 = self.varMap[inputName1]
+    #         input1 = input1.reshape(-1)
+
+    #     if inputName2 in self.constantMap:
+    #         input2 = self.constantMap[inputName2]
+    #     else:
+    #         input2 = self.varMap[inputName2]
+    #         input2 = input2.reshape(-1)
+
+    #     outputVariables = self.makeNewVariables(nodeName)
+    #     outputVariables = outputVariables.reshape(-1)
+
+    #     for i in range(len(input1)):
     #         e = MarabouUtils.Equation()
-    #         e.addAddend(1, inputVars[i])
-    #         e.addAddend(-1, outputVars[i])
-    #         e.setScalar(-constants[i])
+    #         e.addAddend(input2[i], input1[i])
+    #         e.addAddend(-1, outputVariables[i])
+    #         e.setScalar(0.0)
     #         self.query.addEquation(e)
+    #     return
