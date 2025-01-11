@@ -97,7 +97,8 @@ if __name__ == "__main__":
                     sum_: [
                         bound.item()
                         for bound in bounded_module.compute_bounds(
-                            x=ptb_input, method="IBP"
+                            x=ptb_input,
+                            method="IBP",
                         )
                     ]
                     for sum_, bounded_module in bounded_module_per_sum.items()

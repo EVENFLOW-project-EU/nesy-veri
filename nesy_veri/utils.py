@@ -24,7 +24,7 @@ class NetworksPlusCircuit(nn.Module):
         # evaluate the neural networks
         # the ith network is evaluated on the ith input
         network_outputs = [
-            self.networks[i](x[i].unsqueeze(0)) for i in range(len(self.networks))
+            self.networks[i](x[i]) for i in range(len(self.networks))
         ]
 
         # concatenate the network outputs and flatten to pass to SDD
