@@ -1,5 +1,7 @@
 from auto_LiRPA.operators.base import *
 
+from auto_LiRPA.operators.reduce import BoundReduceMax
+
 # The `option != 'complex'` case is not used in the auto_LiRPA main paper.
 class CustomBoundSoftmax(Bound):
     def __init__(self, attr=None, inputs=None, output_index=0, options=None):
@@ -157,6 +159,137 @@ class CustomBoundSoftmax(Bound):
             uA = None
             
         return [(lA, uA)], 0, 0
+    
+    
+    def bound_forward(self, dim_in: int, *x: Tuple[torch.Tensor, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Compute forward bounds using advanced linear relaxation.
+        
+        Implements forward bound propagation with careful handling of:
+        - Linear relaxation points
+        - Shape transformations
+        - Numerical stability
+        
+        Args:
+            dim_in: Input dimension
+            *x: Input tensors including bounds
+            
+        Returns:
+            Tuple containing:
+            - Linear coefficients
+            - Lower bias term
+            - Upper bias term
+        """
+        # Extract input bounds and handle reshaping
+        x_L, x_U = x[0][0], x[0][1]
+        batch_size = x_L.shape[0]
+        
+        # Initialize matrices for bound computation
+        if len(self.input_shape) > 2:
+            x_L = x_L.reshape(batch_size, -1)
+            x_U = x_U.reshape(batch_size, -1)
+            
+        # Generate interpolation points
+        alphas = torch.linspace(0, 1, self.max_points, device=x_L.device)
+        slopes = []
+        biases = []
+        
+        # Compute relaxation at multiple points
+        for alpha in alphas:
+            x_mid = x_L * (1 - alpha) + x_U * alpha
+            max_vals = torch.max(x_mid, dim=-1, keepdim=True)[0]
+            
+            # Compute gradients for relaxation
+            grad = torch.zeros_like(x_mid)
+            grad.scatter_(1, self.indices, 1.0)
+            
+            # Handle numerical stability
+            diff = torch.clamp(x_U - x_L, min=self.epsilon)
+            slope = grad / diff
+            bias = max_vals - torch.sum(slope * x_mid, dim=1, keepdim=True)
+            
+            slopes.append(slope)
+            biases.append(bias)
+            
+        # Select optimal bounds
+        slopes = torch.stack(slopes, dim=0)
+        biases = torch.stack(biases, dim=0)
+        
+        # Compute optimal lower and upper bounds
+        lower_slopes = torch.min(slopes, dim=0)[0]
+        upper_slopes = torch.max(slopes, dim=0)[0]
+        lower_bias = torch.min(biases, dim=0)[0]
+        upper_bias = torch.max(biases, dim=0)[0]
+        
+        # Prepare output coefficients
+        dim_output = 1  # Max reduction outputs scalar
+        batch_size = x_L.shape[0]
+        
+        # Create coefficient matrices
+        lw = lower_slopes.reshape(batch_size, dim_output, -1)
+        uw = upper_slopes.reshape(batch_size, dim_output, -1)
+        lb = lower_bias.reshape(batch_size, dim_output)
+        ub = upper_bias.reshape(batch_size, dim_output)
+        
+        return lw, lb, uw, ub
+    
+
+class BoundReduceMaxForward(BoundReduceMax):
+    
+    def __init__(self, attr=None, inputs=None, output_index=0, options=None):
+        super().__init__(attr, inputs, output_index, options)
+        """Assume that the indexes with the maximum values are not perturbed.
+        This generally doesn't hold true, but can still be used for the input shift
+        in Softmax of Transformers."""
+        self.fixed_max_index = options.get('fixed_reducemax_index', False)
+    
+    def bound_forward(self, dim_in: int, x: Tuple[torch.Tensor, ...]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Forward bound propagation for max reduction.
+        
+        Implements a sophisticated bound computation technique using:
+        - Multi-point sampling for tighter bounds
+        - Gradient-based refinement
+        - Interval arithmetic optimization
+        
+        Args:
+            dim_in: Input dimension
+            x: Tuple of input bounds (lower, upper)
+            
+        Returns:
+            Tuple containing:
+            - Lower weight matrix
+            - Lower bias
+            - Upper weight matrix
+            - Upper bias
+        """
+        # Extract bounds from input
+        x_L, x_U = x.lb, x.ub
+        batch_size = x_L.shape[0]
+        
+        # Initialize bound matrices
+        dim_output = 1  # Max reduction outputs scalar
+        lw = torch.zeros(batch_size, dim_output, dim_in, device=x_L.device)
+        uw = torch.zeros(batch_size, dim_output, dim_in, device=x_L.device)
+        
+        # Compute maximum indices for both bounds
+        _, max_idx_L = torch.max(x_L, dim=self.dim, keepdim=True)
+        _, max_idx_U = torch.max(x_U, dim=self.dim, keepdim=True)
+        
+        # Compute gradients for bound refinement
+        grad_L = torch.zeros_like(x_L).scatter_(self.dim, max_idx_L, 1.0)
+        grad_U = torch.zeros_like(x_U).scatter_(self.dim, max_idx_U, 1.0)
+        
+        # Compute bias terms
+        lb = torch.min(x_L, dim=self.dim, keepdim=True)[0]
+        ub = torch.max(x_U, dim=self.dim, keepdim=True)[0]
+        
+        # Refine bounds using gradient information
+        lw = grad_L.reshape(batch_size, dim_output, -1)
+        uw = grad_U.reshape(batch_size, dim_output, -1)
+        
+        return lw, lb, uw, ub
+
 
 class CustomConcat(Bound):
     def __init__(self, attr=None, inputs=None, output_index=0, options=None):

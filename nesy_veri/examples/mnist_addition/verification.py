@@ -91,8 +91,9 @@ if __name__ == "__main__":
 
             num_samples_checked = 0
             num_samples_robust = 0
+            
 
-            for method in ["CROWN", "IBP+CROWN", "IBP"]:
+            for method in ["forward", "CROWN", "IBP+CROWN", "IBP"]:
                 
                 for idx in track(correctly_classified_idxs):
                     input_imgs, sum_label = test_dataset[idx]
