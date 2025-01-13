@@ -56,7 +56,14 @@ def get_bounded_modules_and_samples_to_verify(
         sum_: BoundedModule(
             net_plus_circuit,
             torch.empty_like(test_dataset[0][0]),
-            verbose=False,
+            verbose=True,
+            bound_opts={
+                'conv_mode': 'matrix', 
+                'optimize_bound_args': {
+                        'iteration': 20,  # Adjust based on your needs
+                        'beta': False  # Disable beta optimization if needed
+                    }
+            }
         )
         for sum_, net_plus_circuit in net_and_circuit_per_sum.items()
     }
@@ -67,7 +74,7 @@ def get_bounded_modules_and_samples_to_verify(
 if __name__ == "__main__":
 
     # declare number of MNIST digits for this experiment
-    for num_digits in [2, 3]:
+    for num_digits in [1]: #[2, 3]
 
         # get the dataset for this number of digits
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
@@ -85,30 +92,33 @@ if __name__ == "__main__":
             num_samples_checked = 0
             num_samples_robust = 0
 
-            for idx in track(correctly_classified_idxs):
-                input_imgs, sum_label = test_dataset[idx]
+            for method in ["CROWN", "IBP+CROWN", "IBP"]:
+                
+                for idx in track(correctly_classified_idxs):
+                    input_imgs, sum_label = test_dataset[idx]
 
-                # create perturbed input
-                # TODO: should this be outside of this for loop (i.e. one ptb per epsilon)
-                ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
-                ptb_input = BoundedTensor(input_imgs, ptb)
+                    # create perturbed input
+                    # TODO: should this be outside of this for loop (i.e. one ptb per epsilon)
+                    ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
+                    ptb_input = BoundedTensor(input_imgs, ptb)
+                    
+                    bounds_per_sum = {
+                        sum_: [
+                            bound.item()
+                            for bound in bounded_module.compute_bounds(
+                                x=ptb_input, method=method,
+                            )
+                        ]
+                        for sum_, bounded_module in bounded_module_per_sum.items()
+                    }
 
-                bounds_per_sum = {
-                    sum_: [
-                        bound.item()
-                        for bound in bounded_module.compute_bounds(
-                            x=ptb_input, method="IBP"
-                        )
-                    ]
-                    for sum_, bounded_module in bounded_module_per_sum.items()
-                }
+                    num_samples_checked += 1
+                    num_samples_robust += example_is_robust(bounds_per_sum, sum_label)
 
-                num_samples_checked += 1
-                num_samples_robust += example_is_robust(bounds_per_sum, sum_label)
-
-            print(
-                f"Epsilon: {epsilon:<15}",
-                f"#total: {len(test_dataset)}, \t ",
-                f"#correct: {len(correctly_classified_idxs)}, {round(((len(correctly_classified_idxs) / len(test_dataset))*100), 2)}% \t ",
-                f"#robust correct: {num_samples_robust}, {round(((num_samples_robust / len(test_dataset))*100), 2)}% ",
-            )
+                print(
+                    f"Method: {method}, \t "
+                    f"Epsilon: {epsilon:<15}",
+                    f"#total: {len(test_dataset)}, \t ",
+                    f"#correct: {len(correctly_classified_idxs)}, {round(((len(correctly_classified_idxs) / len(test_dataset))*100), 2)}% \t ",
+                    f"#robust correct: {num_samples_robust}, {round(((num_samples_robust / len(test_dataset))*100), 2)}% ",
+                )

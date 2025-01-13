@@ -23,13 +23,18 @@ class NetworksPlusCircuit(nn.Module):
     def forward(self, x):
         # evaluate the neural networks
         # the ith network is evaluated on the ith input
-        network_outputs = [
-            self.networks[i](x[i].unsqueeze(0)) for i in range(len(self.networks))
-        ]
-
+        # network_outputs = [
+        #     self.networks[i](x[i].unsqueeze(1)) for i in range(len(self.networks))
+        # ]
+        
         # concatenate the network outputs and flatten to pass to SDD
-        sdd_input = torch.cat(network_outputs, dim=1).squeeze(0)
-
+        # sdd_input = torch.cat(network_outputs, dim=1).squeeze(0)
+        
+        network_outputs = self.networks[0](x) #TODO testing for 1 network (all the MNIST Nets are the same)
+        
+        sdd_input = network_outputs #TODO: modifying eval
+        
+        
         # evaluate the SDD on the NN outputs
         sdd_output = eval_sdd(
             node=self.circuit,
@@ -92,8 +97,8 @@ def eval_sdd(
             return add_neutral
         elif isinstance(n, int):
             if abs(n) in categorical_idxs:
-                return labelling[abs(n) - 1] if n > 0 else 1
-            return labelling[abs(n) - 1] if n > 0 else 1 - labelling[abs(n) - 1]
+                return labelling[0][abs(n) - 1] if n > 0 else 1
+            return labelling[0][abs(n) - 1] if n > 0 else 1 - labelling[0][abs(n) - 1]
         else:
             children_values = []
             for p in n.children:
