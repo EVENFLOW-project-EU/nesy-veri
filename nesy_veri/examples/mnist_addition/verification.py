@@ -17,6 +17,8 @@ from nesy_veri.examples.mnist_addition.mnist_utils import (
     get_correctly_classified_examples,
 )
 
+from auto_LiRPA.utils import get_spec_matrix
+
 
 def get_bounded_modules_and_samples_to_verify(
     num_digits: int, test_dataset: MultiDigitAdditionDataset
@@ -26,6 +28,7 @@ def get_bounded_modules_and_samples_to_verify(
         / "checkpoints/model_checkpoints/trained_model_softmax.pth"
     )
     mnist_cnn = get_mnist_network(model_path=model_path)
+    mnist_cnn = mnist_cnn.eval() # make sure the model is in evaluation mode
 
     # for each sum, get a network+circuit module
     # these will be used both for inference and for bound propagation
@@ -74,7 +77,7 @@ def get_bounded_modules_and_samples_to_verify(
 if __name__ == "__main__":
 
     # declare number of MNIST digits for this experiment
-    for num_digits in [1]: #[2, 3]
+    for num_digits in [1]: #[1, 2, 3]
 
         # get the dataset for this number of digits
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
@@ -93,7 +96,7 @@ if __name__ == "__main__":
             num_samples_robust = 0
             
 
-            for method in ["forward", "CROWN", "IBP+CROWN", "IBP"]:
+            for method in ["CROWN", "IBP+CROWN", "IBP"]: #"forward"
                 
                 for idx in track(correctly_classified_idxs):
                     input_imgs, sum_label = test_dataset[idx]

@@ -97,8 +97,8 @@ def eval_sdd(
             return add_neutral
         elif isinstance(n, int):
             if abs(n) in categorical_idxs:
-                return labelling[0][abs(n) - 1] if n > 0 else 1
-            return labelling[0][abs(n) - 1] if n > 0 else 1 - labelling[0][abs(n) - 1]
+                return labelling[(abs(n) - 1)//10, (abs(n) - 1)%10] if n > 0 else 1
+            return labelling[(abs(n) - 1)//10, (abs(n) - 1)%10] if n > 0 else 1 - labelling[(abs(n) - 1)//10, (abs(n) - 1)%10]
         else:
             children_values = []
             for p in n.children:
@@ -110,7 +110,7 @@ def eval_sdd(
 
     result = do_eval(node)
 
-    return result
+    return result.unsqueeze(0)
 
 
 def example_is_robust(bounds_per_class: dict[int, list[float]], correct_class: int):
