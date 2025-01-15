@@ -182,9 +182,14 @@ def verify_experiment(digits: list[int], num_epochs: int, epsilon: float):
         data[num_digits]["GRB"] = {}
         data[num_digits]["#problematic samples"] = 0
 
-        for i, (input_imgs, sum_label) in track(
-            enumerate(test_dataset), total=len(test_dataset)
-        ):
+        three_days_seconds = 60 * 60 * 24 * 3
+        this_digit_start_runtime = time()
+
+        for i, (input_imgs, sum_label) in enumerate(test_dataset):
+            now = time()
+            if now - this_digit_start_runtime > three_days_seconds:
+                break
+
             # create perturbed input
             ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
             ptb_input = BoundedTensor(input_imgs, ptb)
@@ -271,9 +276,10 @@ def verify_experiment(digits: list[int], num_epochs: int, epsilon: float):
 
 
 if __name__ == "__main__":
-    # the way to call this is:
-
-    # python nesy_veri/examples/mnist_addition/gurobi_comparison/gurobi_correct_sum_comparison.py --digits 2 3 4 5 --num_epochs 10 --epsilon 0.01
+    # ---------------------------------------
+    # the way to call this file is:
+    # python nesy_veri/examples/mnist_addition/gurobi_comparison/gurobi_correct_sum_comparison.py --digits 2 3 4 5 6 --num_epochs 2 --epsilon 0.001
+    # ---------------------------------------
 
     parser = argparse.ArgumentParser(description="Verify experiment settings.")
 
@@ -282,7 +288,7 @@ if __name__ == "__main__":
         type=int,
         nargs="+",
         required=True,
-        help="List of digits to verify (e.g., 1 2 3).",
+        help="List of digits to verify (e.g., 2 3 4).",
     )
     parser.add_argument(
         "--num_epochs",
