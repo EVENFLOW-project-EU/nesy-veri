@@ -105,7 +105,7 @@ def train_mnist_network(
     torch.save(mnist_net.state_dict(), save_model_path)
 
 
-def get_mnist_network(model_path: os.PathLike, num_epochs: int = 10):
+def get_mnist_network(model_path: os.PathLike, num_epochs):
     mnist_net = MNIST_Net()
 
     # if the trained network hasn't been saved, train and save it

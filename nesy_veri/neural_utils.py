@@ -60,9 +60,10 @@ def run_dataloader(
                 case nn.BCELoss():
                     loss = loss_function(outputs, labels)
                 case nn.NLLLoss():
-                    # this expects 1D labels, not one-hot, so correct for ROAD-R
-                    # and re-correct if necessary for something else
-                    loss = loss_function(torch.log(outputs), labels.argmax(dim=1))
+                    # this expects 1D labels, not one-hot, so argmax for ROAD-R
+                    if labels[0].dim() != 0:
+                        labels = labels.argmax(dim=1)
+                    loss = loss_function(torch.log(outputs), labels)
                 case nn.BCEWithLogitsLoss():
                     loss = loss_function(outputs, labels)
                     outputs = outputs.sigmoid()
