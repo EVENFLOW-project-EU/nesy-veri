@@ -66,7 +66,7 @@ if __name__ == "__main__":
     safe_idxs = [
         idx
         for idx, (input_img, _) in enumerate(test_dataset)
-        if nets_and_circuit(input_img) > 0.5
+        if nets_and_circuit(torch.stack([input_img] * 2)) > 0.5
     ]
 
     register_custom_op("onnx::Softmax", CustomBoundSoftmax)
@@ -76,27 +76,28 @@ if __name__ == "__main__":
     # torch.onnx.export(nets_and_circuit, test_input, "full.onnx")
     bounded_module = BoundedModule(
         nets_and_circuit,
-        torch.empty_like(test_input),
+        torch.empty_like(torch.stack([test_input] * 2)),
         verbose=True,
     )
+    
+    for method in ["CROWN", "IBP+CROWN", "IBP"]: #"forward"
+        for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]:
 
-    for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]:
+            num_samples_robust = 0
 
-        num_samples_robust = 0
+            for idx in track(safe_idxs):
+                input_img, labels = test_dataset[idx]
 
-        for idx in track(safe_idxs):
-            input_img, labels = test_dataset[idx]
+                ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
+                ptb_input = BoundedTensor(torch.stack([input_img] * 2), ptb)
 
-            ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
-            ptb_input = BoundedTensor(input_img, ptb)
+                lb, ub = bounded_module.compute_bounds(x=ptb_input, method=method)
 
-            lb, ub = bounded_module.compute_bounds(x=ptb_input, method="IBP")
+                num_samples_robust += lb.item() > 0.5
 
-            num_samples_robust += lb.item() > 0.5
-
-        print(
-            f"Epsilon: {epsilon:<15}",
-            f"#total: {len(test_dataset)}, \t ",
-            f"#correct: {len(safe_idxs)}, {round(((len(safe_idxs) / len(test_dataset))*100), 2)}% \t ",
-            f"#robust correct: {num_samples_robust}, {round(((num_samples_robust / len(test_dataset))*100), 2)}% ",
-        )
+            print(
+                f"Epsilon: {epsilon:<15}",
+                f"#total: {len(test_dataset)}, \t ",
+                f"#correct: {len(safe_idxs)}, {round(((len(safe_idxs) / len(test_dataset))*100), 2)}% \t ",
+                f"#robust correct: {num_samples_robust}, {round(((num_samples_robust / len(test_dataset))*100), 2)}% ",
+            )
