@@ -147,7 +147,7 @@ def get_road_network(
             num_classes=2,
             softmax=False if labels == "objects" else True,
         )
-        net.load_state_dict(torch.load(model_path, weights_only=True))
+        # net.load_state_dict(torch.load(model_path, weights_only=True))
         net.eval()
     else:
         net = train_road_network(
