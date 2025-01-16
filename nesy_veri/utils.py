@@ -26,7 +26,32 @@ class NetworksPlusCircuit(nn.Module):
         network_outputs = [self.networks[i](x) for i in range(len(self.networks))]
 
         # concatenate the network outputs and flatten to pass to SDD
-        sdd_input = torch.cat(network_outputs, dim=1)
+        # sdd_input = torch.cat(network_outputs, dim=1)
+        
+        # Define weight matrices for each output
+        weight_0 = torch.tensor([
+            [1, 0],  # Maps outputs_0[:, 0] to the first position
+            [0, 1],  # Maps outputs_0[:, 1] to the second position
+            [0, 0],  # Fills the remaining positions with zeros
+            [0, 0]
+        ], dtype=torch.float32)
+
+        weight_1 = torch.tensor([
+            [0, 0],  # Fills the first two positions with zeros
+            [0, 0],
+            [1, 0],  # Maps outputs_1[:, 0] to the third position
+            [0, 1]   # Maps outputs_1[:, 1] to the fourth position
+        ], dtype=torch.float32)
+
+        # Compute contributions from each output
+        result_0 = torch.mm(network_outputs[0], weight_0.T)  # Shape (1, 4)
+        result_1 = torch.mm(network_outputs[1], weight_1.T)  # Shape (1, 4)
+
+        # Add the results to get the final tensor
+        sdd_input = result_0 + result_1
+
+        # # ensure this isn't wrong, compare with the previous version
+        # assert sdd_input.equal(torch.cat(network_outputs, dim=1))
 
         # evaluate the SDD on the NN outputs
         sdd_output = eval_sdd(

@@ -90,7 +90,7 @@ if __name__ == "__main__":
             ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
             ptb_input = BoundedTensor(input_img, ptb)
 
-            lb, ub = bounded_module.compute_bounds(x=ptb_input, method="IBP")
+            lb, ub = bounded_module.compute_bounds(x=ptb_input, method="CROWN")
 
             num_samples_robust += lb.item() > 0.5
 
