@@ -157,19 +157,16 @@ class ROADRPropositional(Dataset):
         return len(self.features)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        tensor_img = self.transform(read_image(self.image_paths[index]) / 255)
+        tensor_img = tensor_img.unsqueeze(0)
+
         if self.label_level == "objects":
-            return (
-                self.transform(read_image(self.image_paths[index]) / 255),
-                torch.Tensor(self.features[index]).float(),
-            )
+            return (tensor_img, torch.Tensor(self.features[index]).float())
         elif self.label_level == "actions":
-            return (
-                self.transform(read_image(self.image_paths[index]) / 255),
-                torch.Tensor(self.labels[index]).float(),
-            )
+            return (tensor_img, torch.Tensor(self.labels[index]).float())
         else:
             return (
-                self.transform(read_image(self.image_paths[index]) / 255),
+                tensor_img,
                 torch.Tensor(self.features[index] + self.labels[index]).float(),
             )
 
