@@ -101,63 +101,52 @@ class CustomBoundSoftmax(Bound):
         
         return lower, upper
 
-    def bound_backward(self, last_lA, last_uA, *x, start_node=None, **kwargs):
+    def bound_backward(self, last_lA, last_uA, *x, **kwargs):
         """
-        Compute backward bounds with proper shape handling.
+        Compute linear relaxation for backward bound propagation (CROWN).
         
         Args:
-            last_lA: Lower bound coefficients from previous layer
-            last_uA: Upper bound coefficients from previous layer
-            *x: Input tensors including bounds
-            start_node: Starting node for bound computation
-            **kwargs: Additional keyword arguments
+            last_lA: Last layer's lower bound coefficients
+            last_uA: Last layer's upper bound coefficients
+            *args: Additional arguments
             
         Returns:
-            tuple: Updated bounds and bias terms
+            Tuple: Updated bounds for backward propagation
         """
         if last_lA is None and last_uA is None:
-            return None, 0, 0
+            return None, None, None
             
-        # Handle input shapes
-        x_L, x_U = x[0][0], x[0][1]
-        x_L, orig_shape = self.handle_shape(x_L)
-        x_U = self.handle_shape(x_U)[0]
+        # Get input bounds from previous layer
+        prev_lb = self.inputs[0].lower
+        prev_ub = self.inputs[0].upper
         
-        # Compute relaxation at multiple reference points
-        alpha_points = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0], device=x_L.device)
-        ref_points = [x_L * (1 - a) + x_U * a for a in alpha_points]
-        
-        def get_bound_parameters(x_ref):
-            """Compute bound parameters at reference point."""
-            max_ref = torch.max(x_ref, dim=-1, keepdim=True)[0]
-            x_shifted = x_ref - max_ref
-            exp_ref = torch.exp(torch.clamp(x_shifted, max=self.max_denom))
-            sum_exp = torch.sum(exp_ref, dim=-1, keepdim=True)
-            return exp_ref / (sum_exp + self.eps)
+        def _get_relaxation_slopes(lb, ub):
+            """Compute slopes for linear relaxation."""
+            if lb is None and ub is None:
+                return None
+            diff = ub - lb
+            mask = diff > 0
+            slopes = torch.zeros_like(diff)
+            slopes[mask] = (torch.exp(ub[mask]) - torch.exp(lb[mask])) / diff[mask]
+            return slopes
             
-        # Get slopes at reference points
-        slopes = [get_bound_parameters(ref) for ref in ref_points]
+        # Compute slopes for relaxation
+        slopes = _get_relaxation_slopes(prev_lb, prev_ub)
         
-        # Compute bounds using optimal slopes
-        if last_lA is not None:
-            lA = torch.where(
-                last_lA >= 0,
-                torch.min(torch.stack([s * last_lA for s in slopes]), dim=0)[0],
-                torch.max(torch.stack([s * last_lA for s in slopes]), dim=0)[0]
-            )
-        else:
-            lA = None
+        # Initialize A matrices
+        lA = None if last_lA is None else last_lA.clone()
+        uA = None if last_uA is None else last_uA.clone()
+        
+        if lA is not None and slopes is not None:
+            # Lower bound relaxation
+            lA = lA * slopes.unsqueeze(0)
             
-        if last_uA is not None:
-            uA = torch.where(
-                last_uA >= 0,
-                torch.max(torch.stack([s * last_uA for s in slopes]), dim=0)[0],
-                torch.min(torch.stack([s * last_uA for s in slopes]), dim=0)[0]
-            )
-        else:
-            uA = None
+        if uA is not None and slopes is not None:
+            # Upper bound relaxation
+            uA = uA * slopes.unsqueeze(0)
             
         return [(lA, uA)], 0, 0
+    
 
     def bound_forward(self, dim_in: int, *x: Tuple[torch.Tensor, torch.Tensor]) -> LinearBound:
         """Compute forward bounds using CROWN method.
@@ -176,9 +165,9 @@ class CustomBoundSoftmax(Bound):
         batch_size = h_L.shape[0]
         
         # Compute LSE bounds
-        h_max = torch.max(h_U, dim=-1, keepdim=True)[0]
-        sum_exp_U = torch.sum(torch.exp(h_U - h_max), dim=-1, keepdim=True)
-        sum_exp_L = torch.sum(torch.exp(h_L - h_max), dim=-1, keepdim=True)
+        # h_max = torch.max(h_U, dim=-1, keepdim=True)[0]
+        # sum_exp_U = torch.sum(torch.exp(h_U - h_max), dim=-1, keepdim=True)
+        # sum_exp_L = torch.sum(torch.exp(h_L - h_max), dim=-1, keepdim=True)
         
         # Compute slopes for linear relaxation
         diff = h_U - h_L

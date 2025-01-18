@@ -12,7 +12,7 @@ from torch.utils.data import random_split
 
 from nesy_veri.examples.ROAD_R.network_training import get_road_network
 from nesy_veri.examples.ROAD_R.road_utils import ROADRPropositional, get_road_constraint
-from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
+from nesy_veri.custom_ops import CustomBoundSoftmax
 from nesy_veri.utils import NetworksPlusCircuit
 
 
@@ -66,21 +66,28 @@ if __name__ == "__main__":
     safe_idxs = [
         idx
         for idx, (input_img, _) in enumerate(test_dataset)
-        if nets_and_circuit(torch.stack([input_img] * 2)) > 0.5
+        if nets_and_circuit(input_img) > 0.5
     ]
 
     register_custom_op("onnx::Softmax", CustomBoundSoftmax)
-    register_custom_op("onnx::Concat", CustomConcat)
-
+    # register_custom_op("onnx::Concat", CustomConcat)
     test_input = test_dataset[0][0]
     # torch.onnx.export(nets_and_circuit, test_input, "full.onnx")
     bounded_module = BoundedModule(
         nets_and_circuit,
-        torch.empty_like(torch.stack([test_input] * 2)),
+        torch.empty_like(test_input),
         verbose=True,
     )
-    
-    for method in ["CROWN", "IBP+CROWN", "IBP"]: #"forward"
+    bounded_module.set_bound_opts(
+        {
+            "optimize_bound_args": {
+                "enable_beta_crown": True,
+                "iteration": 20,  # Number of optimization iterations
+            }
+        }
+    )
+
+    for method in ['crown', 'ibp', 'crown-ibp',]: #crown is getting OOM issue 
         for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]:
 
             num_samples_robust = 0
@@ -89,7 +96,7 @@ if __name__ == "__main__":
                 input_img, labels = test_dataset[idx]
 
                 ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
-                ptb_input = BoundedTensor(torch.stack([input_img] * 2), ptb)
+                ptb_input = BoundedTensor(input_img, ptb)
 
                 lb, ub = bounded_module.compute_bounds(x=ptb_input, method=method)
 

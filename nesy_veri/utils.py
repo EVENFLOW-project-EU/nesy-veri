@@ -23,18 +23,36 @@ class NetworksPlusCircuit(nn.Module):
     def forward(self, x):
         # evaluate the neural networks
         # the ith network is evaluated on the ith input
-        # network_outputs = [
-        #     self.networks[i](x[i].unsqueeze(1)) for i in range(len(self.networks))
-        # ]
-        
+        network_outputs = [self.networks[i](x) for i in range(len(self.networks))]
+
         # concatenate the network outputs and flatten to pass to SDD
-        # sdd_input = torch.cat(network_outputs, dim=1).squeeze(0)
+        # sdd_input = torch.cat(network_outputs, dim=1)
         
-        network_outputs = self.networks[0](x) #TODO testing for 1 network (all the MNIST Nets are the same)
-        
-        sdd_input = network_outputs #TODO: modifying eval
-        
-        
+        # Define weight matrices for each output
+        weight_0 = torch.tensor([
+            [1, 0],  # Maps outputs_0[:, 0] to the first position
+            [0, 1],  # Maps outputs_0[:, 1] to the second position
+            [0, 0],  # Fills the remaining positions with zeros
+            [0, 0]
+        ], dtype=torch.float32)
+
+        weight_1 = torch.tensor([
+            [0, 0],  # Fills the first two positions with zeros
+            [0, 0],
+            [1, 0],  # Maps outputs_1[:, 0] to the third position
+            [0, 1]   # Maps outputs_1[:, 1] to the fourth position
+        ], dtype=torch.float32)
+
+        # Compute contributions from each output
+        result_0 = torch.mm(network_outputs[0], weight_0.T)  # Shape (1, 4)
+        result_1 = torch.mm(network_outputs[1], weight_1.T)  # Shape (1, 4)
+
+        # Add the results to get the final tensor
+        sdd_input = result_0 + result_1
+
+        # # ensure this isn't wrong, compare with the previous version
+        # assert sdd_input.equal(torch.cat(network_outputs, dim=1))
+
         # evaluate the SDD on the NN outputs
         sdd_output = eval_sdd(
             node=self.circuit,
@@ -43,7 +61,7 @@ class NetworksPlusCircuit(nn.Module):
             add_neutral=0,
             mul_neutral=1,
             labelling=sdd_input,
-            categorical_idxs= self.categorical_idxs,
+            categorical_idxs=self.categorical_idxs,
         )
 
         return sdd_output
@@ -97,8 +115,8 @@ def eval_sdd(
             return add_neutral
         elif isinstance(n, int):
             if abs(n) in categorical_idxs:
-                return labelling[(abs(n) - 1)//10, (abs(n) - 1)%10] if n > 0 else 1
-            return labelling[(abs(n) - 1)//10, (abs(n) - 1)%10] if n > 0 else 1 - labelling[(abs(n) - 1)//10, (abs(n) - 1)%10]
+                return labelling[:, abs(n) - 1] if n > 0 else 1
+            return labelling[:, abs(n) - 1] if n > 0 else 1 - labelling[:, abs(n) - 1]
         else:
             children_values = []
             for p in n.children:
@@ -110,7 +128,7 @@ def eval_sdd(
 
     result = do_eval(node)
 
-    return result.unsqueeze(0)
+    return result
 
 
 def example_is_robust(bounds_per_class: dict[int, list[float]], correct_class: int):
