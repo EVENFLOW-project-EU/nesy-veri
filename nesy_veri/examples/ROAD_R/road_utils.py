@@ -87,28 +87,28 @@ class ROADRPropositional(Dataset):
 
         video_names = {
             "train": [
-                "2014-06-25-16-45-34_stereo_centre_02",
-                "2014-08-11-10-59-18_stereo_centre_02",
-                "2014-11-25-09-18-32_stereo_centre_04",
-                "2014-12-09-13-21-02_stereo_centre_01",
+                # "2014-06-25-16-45-34_stereo_centre_02",
+                # "2014-08-11-10-59-18_stereo_centre_02",
+                # "2014-11-25-09-18-32_stereo_centre_04",
+                # "2014-12-09-13-21-02_stereo_centre_01",
                 "2015-02-03-08-45-10_stereo_centre_02",
-                "2015-02-03-19-43-11_stereo_centre_04",
-                "2015-02-06-13-57-16_stereo_centre_02",
+                # "2015-02-03-19-43-11_stereo_centre_04",
+                # "2015-02-06-13-57-16_stereo_centre_02",
                 "2015-02-13-09-16-26_stereo_centre_02",
-                "2015-02-13-09-16-26_stereo_centre_05",
-                "2015-02-24-12-32-19_stereo_centre_04",
-                "2015-03-03-11-31-36_stereo_centre_01",
+                # "2015-02-13-09-16-26_stereo_centre_05",
+                # "2015-02-24-12-32-19_stereo_centre_04",
+                # "2015-03-03-11-31-36_stereo_centre_01",
             ],
             "val": [
-                "2014-11-14-16-34-33_stereo_centre_06",
-                "2014-11-18-13-20-12_stereo_centre_05",
-                "2014-11-21-16-07-03_stereo_centre_01",
+                # "2014-11-14-16-34-33_stereo_centre_06",
+                # "2014-11-18-13-20-12_stereo_centre_05",
+                # "2014-11-21-16-07-03_stereo_centre_01",
             ],
             "test": [
-                "2014-06-26-09-53-12_stereo_centre_02",
-                "2014-07-14-14-49-50_stereo_centre_01",
+                # "2014-06-26-09-53-12_stereo_centre_02",
+                # "2014-07-14-14-49-50_stereo_centre_01",
                 "2014-07-14-15-42-55_stereo_centre_03",
-                "2014-08-08-13-15-11_stereo_centre_01",
+                # "2014-08-08-13-15-11_stereo_centre_01",
             ],
         }
 
@@ -157,19 +157,16 @@ class ROADRPropositional(Dataset):
         return len(self.features)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        tensor_img = self.transform(read_image(self.image_paths[index]) / 255)
+        tensor_img = tensor_img.unsqueeze(0)
+
         if self.label_level == "objects":
-            return (
-                self.transform(read_image(self.image_paths[index]) / 255),
-                torch.Tensor(self.features[index]).float(),
-            )
+            return (tensor_img, torch.Tensor(self.features[index]).float())
         elif self.label_level == "actions":
-            return (
-                self.transform(read_image(self.image_paths[index]) / 255),
-                torch.Tensor(self.labels[index]).float(),
-            )
+            return (tensor_img, torch.Tensor(self.labels[index]).float())
         else:
             return (
-                self.transform(read_image(self.image_paths[index]) / 255),
+                tensor_img,
                 torch.Tensor(self.features[index] + self.labels[index]).float(),
             )
 
