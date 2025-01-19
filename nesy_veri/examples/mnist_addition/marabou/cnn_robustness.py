@@ -109,12 +109,12 @@ if __name__ == "__main__":
     print(mnist_cnn)
 
     results = {}
-    for epsilon in [0.0001, 0.001, 0.01]:
+    for epsilon in [0.001]:
         results[epsilon] = {}
         for idx, (input_img, label) in enumerate(dataset):
             input_img = input_img.unsqueeze(0)
 
-            if idx >= 10:
+            if idx >= 100:
                 continue
 
             # create perturbed input
@@ -144,8 +144,6 @@ if __name__ == "__main__":
             }
 
         assert not (exitCode == "unsat" and is_robust)
-
-    for epsilon, res in results.items():
-        print(f"Epsilon: {epsilon}", end="\t")
-        print("exitCodes", Counter(res["exitCodes"]), end="  ")
-        print("exitCodes", sum(res["solve_times"]) / len(res["solve_times"]))
+    
+    solve_times = [s["solve_time"] for s in results[0.001].values()]
+    print(sum(solve_times) / len(solve_times))
