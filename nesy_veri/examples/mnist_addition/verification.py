@@ -1,3 +1,5 @@
+from nesy_veri.examples.mnist_addition.mnist_net_utils import NetworksPlusCircuit
+
 import torch
 import numpy as np
 from pathlib import Path
@@ -9,7 +11,7 @@ from auto_LiRPA import (
     register_custom_op,
 )
 
-from nesy_veri.utils import NetworksPlusCircuit, example_is_robust
+from nesy_veri.utils import example_is_robust
 from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
 from nesy_veri.examples.mnist_addition.network_training import get_mnist_network
 from nesy_veri.examples.mnist_addition.mnist_utils import (
@@ -17,15 +19,13 @@ from nesy_veri.examples.mnist_addition.mnist_utils import (
     get_correctly_classified_examples,
 )
 
-from auto_LiRPA.utils import get_spec_matrix
-
 
 def get_bounded_modules_and_samples_to_verify(
     num_digits: int, test_dataset: MultiDigitAdditionDataset
 ):
     model_path = (
         Path(__file__).parent
-        / "checkpoints/model_checkpoints/trained_model_softmax.pth"
+        / "checkpoints/model_checkpoints/trained_model_10_epochs_softmax.pth"
     )
     mnist_cnn = get_mnist_network(model_path=model_path)
     mnist_cnn = mnist_cnn.eval() # make sure the model is in evaluation mode
@@ -77,7 +77,7 @@ def get_bounded_modules_and_samples_to_verify(
 if __name__ == "__main__":
 
     # declare number of MNIST digits for this experiment
-    for num_digits in [1]: #[1, 2, 3]
+    for num_digits in [2, 3]:
 
         # get the dataset for this number of digits
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
@@ -90,14 +90,12 @@ if __name__ == "__main__":
         ) = get_bounded_modules_and_samples_to_verify(num_digits, test_dataset)
 
         # check what happens for several epsilons
-        for epsilon in [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]:
+        for method in ['ibp', 'crown-ibp', 'crown']: #crown is getting OOM issue 
+            for epsilon in [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]:
 
-            num_samples_checked = 0
-            num_samples_robust = 0
-            
+                num_samples_checked = 0
+                num_samples_robust = 0
 
-            for method in ["CROWN", "IBP+CROWN", "IBP"]: #"forward"
-                
                 for idx in track(correctly_classified_idxs):
                     input_imgs, sum_label = test_dataset[idx]
 
@@ -105,12 +103,12 @@ if __name__ == "__main__":
                     # TODO: should this be outside of this for loop (i.e. one ptb per epsilon)
                     ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
                     ptb_input = BoundedTensor(input_imgs, ptb)
-                    
+
                     bounds_per_sum = {
                         sum_: [
                             bound.item()
                             for bound in bounded_module.compute_bounds(
-                                x=ptb_input, method=method,
+                                x=ptb_input, method=method
                             )
                         ]
                         for sum_, bounded_module in bounded_module_per_sum.items()
@@ -120,7 +118,6 @@ if __name__ == "__main__":
                     num_samples_robust += example_is_robust(bounds_per_sum, sum_label)
 
                 print(
-                    f"Method: {method}, \t "
                     f"Epsilon: {epsilon:<15}",
                     f"#total: {len(test_dataset)}, \t ",
                     f"#correct: {len(correctly_classified_idxs)}, {round(((len(correctly_classified_idxs) / len(test_dataset))*100), 2)}% \t ",
