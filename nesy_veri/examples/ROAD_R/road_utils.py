@@ -67,10 +67,6 @@ class ROADRPropositional(Dataset):
         img_width = 1280 / downsample_img_by
         assert img_height.is_integer() and img_width.is_integer()
         self.transform = Resize((int(img_height), int(img_width)))
-        # self.transform = transforms.Compose([
-        #     transforms.Resize((int(img_height), int(img_width))),
-        #     transforms.Normalize(mean=[0.45, 0.45, 0.46], std=[0.307, 0.308, 0.307])
-        # ])
 
         # extract data from json
         json_path = os.path.join(dataset_path, "road_trainval_v1.0.json")
@@ -157,19 +153,16 @@ class ROADRPropositional(Dataset):
         return len(self.features)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+        tensor_img = self.transform(read_image(self.image_paths[index]) / 255)
+        tensor_img = tensor_img.unsqueeze(0)
+
         if self.label_level == "objects":
-            return (
-                self.transform(read_image(self.image_paths[index]) / 255),
-                torch.Tensor(self.features[index]).float(),
-            )
+            return (tensor_img, torch.Tensor(self.features[index]).float())
         elif self.label_level == "actions":
-            return (
-                self.transform(read_image(self.image_paths[index]) / 255),
-                torch.Tensor(self.labels[index]).float(),
-            )
+            return (tensor_img, torch.Tensor(self.labels[index]).float())
         else:
             return (
-                self.transform(read_image(self.image_paths[index]) / 255),
+                tensor_img,
                 torch.Tensor(self.features[index] + self.labels[index]).float(),
             )
 
