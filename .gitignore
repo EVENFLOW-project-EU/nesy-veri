@@ -1,7 +1,7 @@
 __pycache__
 .vscode
 data
+dataset
 TODO
 old*
-
-changed_onnx_parser.py
+*.txt
