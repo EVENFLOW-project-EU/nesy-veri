@@ -8,9 +8,11 @@ The main concept here is:
 3. Construct whatever verification query you want and ask Marabou to solve it.
 
 ### The Final Verdict
-We did a decent amount of work and succeeded in performing (1) and (2). The rationale was that after managing to read the NeSy system into Marabou as an ONNX graph we would be able to ask the simple verification queries we wanted. We were wrong. This is because Marabou allows you to read some operators (e.g. the Softmax) without throwing an error, but then either incorrectly constructs the equations for these operators, or solves the correct equations incorrectly. I'm not sure which one is the case for Softmax. Regardless, here is the work we did for bullet point (2), in case these are useful for anyone. 
+It doesn't work.
 
-### Our Work
+We did a decent amount of work and "succeeded" in performing all three bullet points from above. The rationale was that after managing to read the NeSy system into Marabou as an ONNX graph we would be able to ask the simple verification queries we wanted. We were wrong. This is because Marabou actually does not have support for solving queries in networks which include some operators (such as Softmax), even though it allows you to read ONNX graphs containing them, such as ours. Regardless, in the "marabou_verification.py" file we do bullet points (1) and (3). These are easy. Bullet point (2) was harder. Here is the work we did in case it is useful for anyone. 
+
+### Our Work for (2)
 Our main aim was to empower Marabou to create a `MarabouNetwork` from an ONNX graph. Therefore, the bulk of the work in this directory is towards allowing Marabou to correctly read and parse our ONNX graphs.
 
 #### Subclassing for using custom functions withing ONNXParser
@@ -34,29 +36,15 @@ until these functions are called. Therefore, in the `custom_marabou` directory w
    checks so maybe take it with a grain of salt. When used, it breaks in the Sub operators, where the self.shapeMap of 
    the two inputs is not the same. I fixed this by changing the Mul operator code.
    One can avoid Gather operators, and instead have Split/Squeeze operators, which are supported in Marabou. This can 
-   be done by replacing indexing with other operations (GPT work).
-
-- **Split:**
-   Marabou's `ONNXParser` thinks that when you `torch.split` you go from (2, 1, 28, 28) to (1, 28, 28) which is not true, 
-   you go to (1, 1, 28, 28). The previous one fucked everything because the input to the convolutional layers was not 
-   4D anymore. So, I changed the code in `splitEquations` to include an additional dimension. However, this is wrong for 
-   other split operations so currently I only do it when we're talking about splitting the input? This feels kind of 
-   wrong looking back. But it works for now and Marabou breaks in the first example so not doing more work for now.
+   be done by replacing indexing with other operations (ChatGPT can do this).
 
 - **Sub:**
-   Sub operation for some reason has inputs swapped. The constant is first and the input is second which is opposite 
-   to what Marabou thinks so throws an AssertionError. However, because I corrected `eval_sdd` to return 1 for negative 
-   literals of categorical variables the Sub operators are no longer in the ONNX graph. So change not needed for now.
+   Sub operation for some reason asserts that input1 is a variable and input2 is a constant. For example, x-5 is allowed, but 1-y and x-y are not.
+   We upgraded this to check what each input is and create the corresponding equation. In our graphs, we need 1-x for probability complements.
 
 - **Mul:**
-   Mul operation for some reason thinks one input should be a constant. I changed it to be as it is in addEquations, 
-   where we check whether they are constants or variables and act accordingly. Maybe there should also be another 
-   check, because if both inputs are constants the output should also be declared as a constant and not as a variable. 
-   Also indexing input1 but not input2 in the for loop which is probably delusional.
+   Mul operation again for some reason asserts that input1 is a variable and input2 is a constant. For example, y times 5 is allowed, but 5 times y and x times y are not. I
+   Again, we upgraded this to check what each input is and create the corresponding equations.
 
 - **makeNewVariable:**
-   At some point size is 1.0, probably because the self.shapeMap() of the outputs of that split node are empty as in 
-   `()`. Maybe that's wrong? This is also a problem if I use the Gather PR operator. Changed this to `int(size)` ??
-
-- Switched sdd input to be 1D because concatenate the split freaked out (1, 20) input so len(input)=1 which is not 
-   equal to len(outputs)=20.
+   At some point size is 1.0, so I just changed it to `int(size)`. Maybe this is wrong.
