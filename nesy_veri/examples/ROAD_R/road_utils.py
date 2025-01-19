@@ -154,7 +154,6 @@ class ROADRPropositional(Dataset):
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         tensor_img = self.transform(read_image(self.image_paths[index]) / 255)
-        tensor_img = tensor_img.unsqueeze(0)
 
         if self.label_level == "objects":
             return (tensor_img, torch.Tensor(self.features[index]).float())

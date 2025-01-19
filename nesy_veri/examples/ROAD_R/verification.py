@@ -66,13 +66,13 @@ if __name__ == "__main__":
     safe_idxs = [
         idx
         for idx, (input_img, _) in enumerate(test_dataset)
-        if nets_and_circuit(input_img) > 0.5
+        if nets_and_circuit(torch.stack([input_img] * 2)) > 0.5
     ]
 
     register_custom_op("onnx::Softmax", CustomBoundSoftmax)
     register_custom_op("onnx::Concat", CustomConcat)
 
-    test_input = test_dataset[0][0]
+    test_input = torch.stack([test_dataset[0][0]] * 2)
     # torch.onnx.export(nets_and_circuit, test_input, "full.onnx")
     bounded_module = BoundedModule(
         nets_and_circuit,
@@ -88,7 +88,7 @@ if __name__ == "__main__":
             input_img, labels = test_dataset[idx]
 
             ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
-            ptb_input = BoundedTensor(input_img, ptb)
+            ptb_input = BoundedTensor(torch.stack([input_img] * 2), ptb)
 
             lb, ub = bounded_module.compute_bounds(x=ptb_input, method="IBP")
 
