@@ -1,0 +1,604 @@
+{
+    "0.001": {
+        "0": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1406416893005371,
+            "Marabou": "sat",
+            "solve_time": 329.3228425979614
+        },
+        "1": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.172438383102417,
+            "Marabou": "sat",
+            "solve_time": 217.65376567840576
+        },
+        "2": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18554329872131348,
+            "Marabou": "sat",
+            "solve_time": 402.7155246734619
+        },
+        "3": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1958627700805664,
+            "Marabou": "sat",
+            "solve_time": 232.89533591270447
+        },
+        "4": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.20475506782531738,
+            "Marabou": "sat",
+            "solve_time": 253.87349891662598
+        },
+        "5": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1963043212890625,
+            "Marabou": "sat",
+            "solve_time": 390.78879475593567
+        },
+        "6": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.23736357688903809,
+            "Marabou": "sat",
+            "solve_time": 276.6777186393738
+        },
+        "7": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18819642066955566,
+            "Marabou": "sat",
+            "solve_time": 305.6882212162018
+        },
+        "8": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17042207717895508,
+            "Marabou": "sat",
+            "solve_time": 214.76068353652954
+        },
+        "9": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18655061721801758,
+            "Marabou": "sat",
+            "solve_time": 324.16544556617737
+        },
+        "10": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17403650283813477,
+            "Marabou": "sat",
+            "solve_time": 156.17523288726807
+        },
+        "11": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18438434600830078,
+            "Marabou": "sat",
+            "solve_time": 200.872985124588
+        },
+        "12": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2003018856048584,
+            "Marabou": "sat",
+            "solve_time": 431.258332490921
+        },
+        "13": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1913754940032959,
+            "Marabou": "sat",
+            "solve_time": 180.42345261573792
+        },
+        "14": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17849469184875488,
+            "Marabou": "sat",
+            "solve_time": 400.31905126571655
+        },
+        "15": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19277501106262207,
+            "Marabou": "sat",
+            "solve_time": 189.47029566764832
+        },
+        "16": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1882305145263672,
+            "Marabou": "sat",
+            "solve_time": 309.08067321777344
+        },
+        "17": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.16207599639892578,
+            "Marabou": "sat",
+            "solve_time": 272.9877107143402
+        },
+        "18": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17247796058654785,
+            "Marabou": "sat",
+            "solve_time": 187.70117259025574
+        },
+        "19": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19379520416259766,
+            "Marabou": "sat",
+            "solve_time": 443.7129352092743
+        },
+        "20": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18174123764038086,
+            "Marabou": "sat",
+            "solve_time": 355.5315942764282
+        },
+        "21": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17679429054260254,
+            "Marabou": "sat",
+            "solve_time": 293.89203357696533
+        },
+        "22": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17402982711791992,
+            "Marabou": "sat",
+            "solve_time": 226.15852975845337
+        },
+        "23": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17460083961486816,
+            "Marabou": "sat",
+            "solve_time": 254.43749952316284
+        },
+        "24": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1929333209991455,
+            "Marabou": "sat",
+            "solve_time": 290.7785716056824
+        },
+        "25": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2070932388305664,
+            "Marabou": "sat",
+            "solve_time": 176.62338614463806
+        },
+        "26": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19121384620666504,
+            "Marabou": "sat",
+            "solve_time": 333.25247597694397
+        },
+        "27": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17684626579284668,
+            "Marabou": "sat",
+            "solve_time": 312.845073223114
+        },
+        "28": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19401264190673828,
+            "Marabou": "sat",
+            "solve_time": 186.97947144508362
+        },
+        "29": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.16341471672058105,
+            "Marabou": "sat",
+            "solve_time": 389.4726037979126
+        },
+        "30": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18170857429504395,
+            "Marabou": "sat",
+            "solve_time": 282.264342546463
+        },
+        "31": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18739938735961914,
+            "Marabou": "sat",
+            "solve_time": 463.03806233406067
+        },
+        "32": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.15218329429626465,
+            "Marabou": "sat",
+            "solve_time": 230.53378462791443
+        },
+        "33": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1859574317932129,
+            "Marabou": "sat",
+            "solve_time": 199.73780965805054
+        },
+        "34": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19162225723266602,
+            "Marabou": "sat",
+            "solve_time": 238.7408308982849
+        },
+        "35": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2073366641998291,
+            "Marabou": "sat",
+            "solve_time": 138.45123434066772
+        },
+        "36": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19073748588562012,
+            "Marabou": "sat",
+            "solve_time": 248.28257489204407
+        },
+        "37": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.21589040756225586,
+            "Marabou": "sat",
+            "solve_time": 387.4816632270813
+        },
+        "38": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18391847610473633,
+            "Marabou": "sat",
+            "solve_time": 226.46322751045227
+        },
+        "39": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19593358039855957,
+            "Marabou": "sat",
+            "solve_time": 361.1320366859436
+        },
+        "40": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19698238372802734,
+            "Marabou": "sat",
+            "solve_time": 470.6895389556885
+        },
+        "41": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19518637657165527,
+            "Marabou": "sat",
+            "solve_time": 325.08422207832336
+        },
+        "42": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19593310356140137,
+            "Marabou": "sat",
+            "solve_time": 299.7398130893707
+        },
+        "43": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17468595504760742,
+            "Marabou": "sat",
+            "solve_time": 260.5511384010315
+        },
+        "44": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17318105697631836,
+            "Marabou": "sat",
+            "solve_time": 301.1824731826782
+        },
+        "45": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18055462837219238,
+            "Marabou": "sat",
+            "solve_time": 258.11378359794617
+        },
+        "46": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.20641517639160156,
+            "Marabou": "sat",
+            "solve_time": 465.61189341545105
+        },
+        "47": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17527055740356445,
+            "Marabou": "sat",
+            "solve_time": 304.5072581768036
+        },
+        "48": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19021201133728027,
+            "Marabou": "sat",
+            "solve_time": 232.6507863998413
+        },
+        "49": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1892402172088623,
+            "Marabou": "sat",
+            "solve_time": 189.76166987419128
+        },
+        "50": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19387578964233398,
+            "Marabou": "sat",
+            "solve_time": 417.7351634502411
+        },
+        "51": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.21730732917785645,
+            "Marabou": "sat",
+            "solve_time": 172.18698358535767
+        },
+        "52": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.12283897399902344,
+            "Marabou": "sat",
+            "solve_time": 274.1690537929535
+        },
+        "53": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2012627124786377,
+            "Marabou": "sat",
+            "solve_time": 228.3642873764038
+        },
+        "54": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19860100746154785,
+            "Marabou": "sat",
+            "solve_time": 173.30096006393433
+        },
+        "55": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17989802360534668,
+            "Marabou": "sat",
+            "solve_time": 266.3086609840393
+        },
+        "56": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18713617324829102,
+            "Marabou": "sat",
+            "solve_time": 245.24376511573792
+        },
+        "57": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17025089263916016,
+            "Marabou": "sat",
+            "solve_time": 400.2942216396332
+        },
+        "58": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19142794609069824,
+            "Marabou": "sat",
+            "solve_time": 369.16141748428345
+        },
+        "59": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2015848159790039,
+            "Marabou": "sat",
+            "solve_time": 340.9196231365204
+        },
+        "60": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18224716186523438,
+            "Marabou": "sat",
+            "solve_time": 291.681667804718
+        },
+        "61": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1796550750732422,
+            "Marabou": "sat",
+            "solve_time": 218.44353604316711
+        },
+        "62": {
+            "auto_LiRPA": "False",
+            "prop_time": 0.19622278213500977,
+            "Marabou": "sat",
+            "solve_time": 355.1538255214691
+        },
+        "63": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1931304931640625,
+            "Marabou": "sat",
+            "solve_time": 241.01686763763428
+        },
+        "64": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.20561599731445312,
+            "Marabou": "sat",
+            "solve_time": 189.08091402053833
+        },
+        "65": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.16424918174743652,
+            "Marabou": "sat",
+            "solve_time": 391.632470369339
+        },
+        "66": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.20694255828857422,
+            "Marabou": "sat",
+            "solve_time": 267.4363660812378
+        },
+        "67": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.15410423278808594,
+            "Marabou": "sat",
+            "solve_time": 220.18064332008362
+        },
+        "68": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19494032859802246,
+            "Marabou": "sat",
+            "solve_time": 225.2318561077118
+        },
+        "69": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18306708335876465,
+            "Marabou": "sat",
+            "solve_time": 162.11852860450745
+        },
+        "70": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2039651870727539,
+            "Marabou": "sat",
+            "solve_time": 276.94022822380066
+        },
+        "71": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19693493843078613,
+            "Marabou": "sat",
+            "solve_time": 3450.4830923080444
+        },
+        "72": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1827542781829834,
+            "Marabou": "sat",
+            "solve_time": 203.99764132499695
+        },
+        "73": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19367289543151855,
+            "Marabou": "sat",
+            "solve_time": 276.99414801597595
+        },
+        "74": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19260573387145996,
+            "Marabou": "sat",
+            "solve_time": 414.6286723613739
+        },
+        "75": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2005143165588379,
+            "Marabou": "sat",
+            "solve_time": 283.84425950050354
+        },
+        "76": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1583259105682373,
+            "Marabou": "sat",
+            "solve_time": 290.01947927474976
+        },
+        "77": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18720412254333496,
+            "Marabou": "sat",
+            "solve_time": 227.06241250038147
+        },
+        "78": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.20469236373901367,
+            "Marabou": "sat",
+            "solve_time": 326.9354739189148
+        },
+        "79": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19236326217651367,
+            "Marabou": "sat",
+            "solve_time": 213.70767259597778
+        },
+        "80": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19217681884765625,
+            "Marabou": "sat",
+            "solve_time": 349.8834898471832
+        },
+        "81": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18015646934509277,
+            "Marabou": "sat",
+            "solve_time": 248.6621208190918
+        },
+        "82": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18328428268432617,
+            "Marabou": "sat",
+            "solve_time": 226.90947723388672
+        },
+        "83": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.16278362274169922,
+            "Marabou": "sat",
+            "solve_time": 356.57344484329224
+        },
+        "84": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1917257308959961,
+            "Marabou": "sat",
+            "solve_time": 227.8686408996582
+        },
+        "85": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1923050880432129,
+            "Marabou": "sat",
+            "solve_time": 244.18231654167175
+        },
+        "86": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18302226066589355,
+            "Marabou": "sat",
+            "solve_time": 271.8417422771454
+        },
+        "87": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19395112991333008,
+            "Marabou": "sat",
+            "solve_time": 201.7857894897461
+        },
+        "88": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.20006966590881348,
+            "Marabou": "sat",
+            "solve_time": 262.9571554660797
+        },
+        "89": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17450714111328125,
+            "Marabou": "sat",
+            "solve_time": 347.34368562698364
+        },
+        "90": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.1966838836669922,
+            "Marabou": "sat",
+            "solve_time": 279.1708779335022
+        },
+        "91": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19098258018493652,
+            "Marabou": "sat",
+            "solve_time": 338.835880279541
+        },
+        "92": {
+            "auto_LiRPA": "False",
+            "prop_time": 0.15822291374206543,
+            "Marabou": "sat",
+            "solve_time": 318.44733929634094
+        },
+        "93": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.19881200790405273,
+            "Marabou": "sat",
+            "solve_time": 230.1103401184082
+        },
+        "94": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.14797639846801758,
+            "Marabou": "sat",
+            "solve_time": 308.2367742061615
+        },
+        "95": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.2010631561279297,
+            "Marabou": "sat",
+            "solve_time": 182.44419479370117
+        },
+        "96": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18718910217285156,
+            "Marabou": "sat",
+            "solve_time": 395.299054145813
+        },
+        "97": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.18539786338806152,
+            "Marabou": "sat",
+            "solve_time": 264.0473201274872
+        },
+        "98": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17888975143432617,
+            "Marabou": "sat",
+            "solve_time": 243.6768672466278
+        },
+        "99": {
+            "auto_LiRPA": "True",
+            "prop_time": 0.17682337760925293,
+            "Marabou": "sat",
+            "solve_time": 270.92991399765015
+        }
+    }
+}
