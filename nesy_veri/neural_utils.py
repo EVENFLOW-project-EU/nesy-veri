@@ -52,7 +52,7 @@ def run_dataloader(
     with progress_bar as progress:
         for idx, (inputs, labels) in enumerate(dataloader):
             inputs, labels = inputs.to(device), labels.to(device)
-            outputs = network(inputs)
+            outputs = network(inputs.squeeze())
 
             match loss_function:
                 case nn.CrossEntropyLoss():
@@ -61,9 +61,10 @@ def run_dataloader(
                     loss = loss_function(outputs, labels)
                 case nn.NLLLoss():
                     # this expects 1D labels, not one-hot, so argmax for ROAD-R
+                    targets = labels
                     if labels[0].dim() != 0:
-                        labels = labels.argmax(dim=1)
-                    loss = loss_function(torch.log(outputs), labels)
+                        targets = targets.argmax(dim=1)
+                    loss = loss_function(torch.log(outputs), targets)
                 case nn.BCEWithLogitsLoss():
                     loss = loss_function(outputs, labels)
                     outputs = outputs.sigmoid()

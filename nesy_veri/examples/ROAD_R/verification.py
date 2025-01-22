@@ -87,7 +87,7 @@ if __name__ == "__main__":
         }
     )
 
-    for method in ['crown', 'ibp', 'crown-ibp',]: #crown is getting OOM issue 
+    for method in ['ibp', 'crown-ibp']: #crown, forward is getting OOM issue 
         for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]:
 
             num_samples_robust = 0

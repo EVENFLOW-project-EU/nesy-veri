@@ -9,6 +9,7 @@ class CustomBoundSoftmax(Bound):
         super().__init__(attr, inputs, output_index, options)
         self.eps = 1e-12  # Numerical stability constant
         self.options = options
+        self.axis = attr['axis']
         self.option = 'complex'
         self.max_denom = 30.0  # Stability threshold
 
@@ -99,91 +100,137 @@ class CustomBoundSoftmax(Bound):
         lower = self.restore_shape(lower, orig_shape)
         upper = self.restore_shape(upper, orig_shape)
         
+        assert torch.all(lower) <= 1 and torch.all(lower) >= 0
+        assert torch.all(upper) <= 1 and torch.all(upper) >= 0 
         return lower, upper
 
     def bound_backward(self, last_lA, last_uA, *x, **kwargs):
         """
-        Compute linear relaxation for backward bound propagation (CROWN).
+        Compute CROWN backward bounds for LSE Softmax using matrix-based approach.
         
         Args:
-            last_lA: Last layer's lower bound coefficients
-            last_uA: Last layer's upper bound coefficients
-            *args: Additional arguments
+            last_lA: Last layer's lower bound linear coefficients
+            last_uA: Last layer's upper bound linear coefficients
+            x: Input bounds from previous layer
             
         Returns:
-            Tuple: Updated bounds for backward propagation
+            tuple: (A_matrices, lbias, ubias) for bound propagation
         """
-        if last_lA is None and last_uA is None:
-            return None, None, None
-            
-        # Get input bounds from previous layer
-        prev_lb = self.inputs[0].lower
-        prev_ub = self.inputs[0].upper
+        # Extract pre-activation bounds
+        h_L, h_U = x[0].lower, x[0].upper
+        default_shape = x[0].output_shape
+        # Default to conservative bounds if real bounds unavailable
+        if h_L is None:
+            h_L = torch.full(default_shape, -1e9, device=self.device)
+        if h_U is None:
+            h_U = torch.full(default_shape, 1e9, device=self.device)
         
-        def _get_relaxation_slopes(lb, ub):
-            """Compute slopes for linear relaxation."""
-            if lb is None and ub is None:
-                return None
-            diff = ub - lb
-            mask = diff > 0
-            slopes = torch.zeros_like(diff)
-            slopes[mask] = (torch.exp(ub[mask]) - torch.exp(lb[mask])) / diff[mask]
-            return slopes
-            
-        # Compute slopes for relaxation
-        slopes = _get_relaxation_slopes(prev_lb, prev_ub)
+        batch_size = h_L.shape[0] if h_L is not None and len(h_L.shape) > 1 else 1
         
-        # Initialize A matrices
-        lA = None if last_lA is None else last_lA.clone()
-        uA = None if last_uA is None else last_uA.clone()
-        
-        if lA is not None and slopes is not None:
-            # Lower bound relaxation
-            lA = lA * slopes.unsqueeze(0)
+        def _compute_relaxation_parameters(h_L, h_U, default_shape=None):
+            """Compute optimal relaxation parameters for linear bounds."""
+                
+            exp_l = torch.exp(h_L)
+            exp_u = torch.exp(h_U)
+            diff = h_U - h_L
             
-        if uA is not None and slopes is not None:
-            # Upper bound relaxation
-            uA = uA * slopes.unsqueeze(0)
+            # Prevent numerical instability
+            mask = diff < 1e-6
+            diff = torch.where(mask, torch.ones_like(diff)*1e-6, diff)
             
-        return [(lA, uA)], 0, 0
-    
+            # Compute slope candidates
+            k1 = torch.log((exp_u - exp_l) / diff)
+            k2 = h_L + 1
+            
+            # Select optimal slope while ensuring numerical stability
+            k = torch.min(k1, k2)
+            slope_lower = torch.exp(k)
+            slope_upper = (exp_u - exp_l) / diff
+            
+            return slope_lower, slope_upper, exp_l, exp_u
 
-    def bound_forward(self, dim_in: int, *x: Tuple[torch.Tensor, torch.Tensor]) -> LinearBound:
-        """Compute forward bounds using CROWN method.
+        def _process_A_matrix(A_matrix, slopes_lower, slopes_upper, bias_lower, bias_upper):
+            """Process A matrix with computed slopes for bound computation."""
+            if A_matrix is None:
+                return None, 0
+                
+            # Select slopes based on A matrix sign
+            pos_mask = A_matrix > 0
+            neg_mask = A_matrix <= 0
+            
+            # Compute final slopes
+            slopes = torch.zeros_like(A_matrix)
+            slopes = torch.where(pos_mask, slopes_upper, slopes)
+            slopes = torch.where(neg_mask, slopes_lower, slopes)
+            
+            # Compute bias terms
+            bias = torch.zeros_like(A_matrix)
+            bias = torch.where(pos_mask, bias_lower, bias)
+            bias = torch.where(neg_mask, bias_upper, bias)
+            
+            # Final A matrix and bias computation
+            new_A = A_matrix * slopes
+            new_bias = (A_matrix * bias).sum(dim=-1)
+            
+            return new_A, new_bias
+
+        # Compute relaxation parameters
+        slopes_l, slopes_u, exp_l, exp_u = _compute_relaxation_parameters(h_L, h_U, default_shape)
         
-        Implements forward bound propagation for hybrid verification.
+        # Compute bias terms for relaxation
+        bias_l = exp_l - slopes_l * h_L
+        bias_u = exp_u - slopes_u * h_U
+        
+        # Process bounds for lower and upper A matrices
+        lA, lbias = _process_A_matrix(last_lA, slopes_l, slopes_u, bias_l, bias_u)
+        uA, ubias = _process_A_matrix(last_uA, slopes_l, slopes_u, bias_l, bias_u)
+        
+        # Return processed bounds
+        return [(lA, uA)], lbias, ubias
+
+    
+    def bound_forward(self, dim_in: int, x) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Implements CROWN+IBP forward bound propagation.
         
         Args:
             dim_in: Input dimension
-            *x: Input bounds from previous layer
+            x: Input bound information
             
         Returns:
-            LinearBound object containing bound parameters
+            Tuple containing bounds and gradient information
         """
-        # Extract input bounds
-        h_L, h_U = x[0]
-        batch_size = h_L.shape[0]
-        
-        # Compute LSE bounds
-        # h_max = torch.max(h_U, dim=-1, keepdim=True)[0]
-        # sum_exp_U = torch.sum(torch.exp(h_U - h_max), dim=-1, keepdim=True)
-        # sum_exp_L = torch.sum(torch.exp(h_L - h_max), dim=-1, keepdim=True)
-        
-        # Compute slopes for linear relaxation
-        diff = h_U - h_L
-        mask = diff < 1e-6
-        slope = torch.where(mask,
-                          torch.exp(h_L),
-                          (torch.exp(h_U) - torch.exp(h_L)) / diff)
-        
-        # Initialize matrices for linear bounds
-        weight = torch.eye(dim_in, device=h_L.device).unsqueeze(0).repeat(batch_size, 1, 1)
-        bias = torch.zeros(batch_size, dim_in, device=h_L.device)
-        
-        # Apply slope to weight matrix
-        weight = weight * slope.unsqueeze(-2)
-        
-        return LinearBound(weight, bias, weight, bias, h_L, h_U)
+        def _bound_oneside(x_lb: torch.Tensor, x_ub: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+            # Handle potentially missing bounds
+            if x_lb is None or x_ub is None:
+                raise ValueError("Forward bound propagation requires valid bounds")
+
+            # Compute exp bounds with numerical stability
+            max_val = torch.max(x_ub)
+            exp_l = torch.exp(x_lb - max_val)
+            exp_u = torch.exp(x_ub - max_val)
+
+            # Reference point computation
+            ref_point = (x_lb + x_ub) / 2
+            exp_ref = torch.exp(ref_point - max_val)
+            
+            # Sum of exponentials at reference point
+            sum_exp_ref = exp_ref.sum(dim=1, keepdim=True)
+
+            # Gradient computation
+            grad = exp_ref * (1 - exp_ref / (sum_exp_ref + self.epsilon))
+
+            # Bound computation with stability
+            lb = exp_l / (exp_u.sum(dim=1, keepdim=True) + self.epsilon)
+            ub = exp_u / (exp_l.sum(dim=1, keepdim=True) + self.epsilon)
+
+            return lb, ub, grad
+
+        # Get bounds from input
+        lb = x.lower if hasattr(x, 'lower') else None
+        ub = x.upper if hasattr(x, 'upper') else None
+
+        return _bound_oneside(lb, ub)
     
 
 class CustomConcat(Bound):
