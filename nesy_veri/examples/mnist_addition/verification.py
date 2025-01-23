@@ -1,5 +1,3 @@
-from nesy_veri.examples.mnist_addition.mnist_net_utils import NetworksPlusCircuit
-
 import torch
 import numpy as np
 from pathlib import Path
@@ -11,7 +9,7 @@ from auto_LiRPA import (
     register_custom_op,
 )
 
-from nesy_veri.utils import example_is_robust
+from nesy_veri.utils import NetworksPlusCircuit, example_is_robust
 from nesy_veri.custom_ops import CustomBoundSoftmax, CustomConcat
 from nesy_veri.examples.mnist_addition.network_training import get_mnist_network
 from nesy_veri.examples.mnist_addition.mnist_utils import (
@@ -52,7 +50,7 @@ def get_bounded_modules_and_samples_to_verify(
     # let auto-LiRPA know I want to use the custom operators for bounding
     # softmax and concatenation
     register_custom_op("onnx::Softmax", CustomBoundSoftmax)
-    register_custom_op("onnx::Concat", CustomConcat)
+    # register_custom_op("onnx::Concat", CustomConcat)
 
     # construct bounded module for each of the 19 network+circuit graphs
     bounded_module_per_sum = {
@@ -77,7 +75,7 @@ def get_bounded_modules_and_samples_to_verify(
 if __name__ == "__main__":
 
     # declare number of MNIST digits for this experiment
-    for num_digits in [2, 3]:
+    for num_digits in [1]: #[1,2,3]:
 
         # get the dataset for this number of digits
         test_dataset = MultiDigitAdditionDataset(train=False, num_digits=num_digits)
@@ -90,7 +88,8 @@ if __name__ == "__main__":
         ) = get_bounded_modules_and_samples_to_verify(num_digits, test_dataset)
 
         # check what happens for several epsilons
-        for method in ['ibp', 'crown-ibp', 'crown']: #crown is getting OOM issue 
+        for method in ['ibp','crown-ibp']: #crown is getting OOM issue 
+            print(f"Method: {method}")
             for epsilon in [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1]:
 
                 num_samples_checked = 0

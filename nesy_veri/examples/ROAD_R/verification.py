@@ -86,9 +86,11 @@ if __name__ == "__main__":
             }
         }
     )
-
-    for method in ['ibp', 'crown-ibp']: #crown, forward is getting OOM issue 
-        for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3]:
+    
+    # safe_idxs = safe_idxs[:1]
+    for method in ['ibp','crown-ibp']: #'crown', 'forward' both getting OOM issue
+        print(f"Method: {method}")
+        for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 2e-3, 3e-3, 4e-3, 5e-3]:
 
             num_samples_robust = 0
 
