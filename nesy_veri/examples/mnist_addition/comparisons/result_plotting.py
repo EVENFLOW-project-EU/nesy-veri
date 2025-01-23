@@ -34,7 +34,7 @@ def plot_timing_results(timing_results, marabou_res):
         ax.plot(
             x,
             timing_results[epsilon]["E2E"],
-            label=f"E2E-A  (ε={epsilon})",
+            label=f"E2E-R  (ε={epsilon})",
             linewidth=2,
             marker=(5, 0),
         )
@@ -44,7 +44,7 @@ def plot_timing_results(timing_results, marabou_res):
         ax.plot(
             x,
             timing_results[epsilon]["GRB"],
-            label=f"A+SLV (ε={epsilon})",
+            label=f"R+SLV (ε={epsilon})",
             linewidth=2,
             linestyle="dotted",
             marker="^",
