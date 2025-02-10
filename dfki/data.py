@@ -1,10 +1,25 @@
 import os
+import json
+import torch
+import shutil
 import pandas as pd
 from pathlib import Path
 from collections import Counter
 import matplotlib.pyplot as plt
 from torchvision.io import read_image
-from torch.utils.data import Dataset, DataLoader
+from torchvision.transforms import Resize
+from torch.utils.data import Dataset
+
+
+def downsample(l, imgs_per_sec):
+    checkpoint = -1
+    downsampled = []
+    time_til_next_img = 1 / imgs_per_sec
+    for idx in range(len(l)):
+        if l[idx] - checkpoint > time_til_next_img:
+            checkpoint = l[idx]
+            downsampled.append(checkpoint)
+    return downsampled
 
 
 def get_images_df_from_txt(txt_file, image_dir):
@@ -25,15 +40,42 @@ def get_images_df_from_txt(txt_file, image_dir):
     images_df = pd.DataFrame(
         {
             "filename": image_files,
-            "current_time": image_timestamps,
+            "ros_left_stamp": image_timestamps,
         }
     )
-    images_df = images_df.sort_values("current_time").reset_index(drop=True)
+    images_df = images_df.sort_values("ros_left_stamp").reset_index(drop=True)
 
     return images_df
 
 
-def create_dataset(data_path):
+def parse_ros_timestamp(timestamp_str):
+    """
+    Parses a ROS timestamp string of the form 'builtin_interfaces.msg.Time(sec=..., nanosec=...)'.
+    Extracts sec and nanosec values and returns the total time in seconds as a float.
+    """
+    sec_start = timestamp_str.find("sec=")
+    sec_end = timestamp_str.find(",", sec_start)
+
+    nanosec_start = timestamp_str.find("nanosec=")
+    nanosec_end = timestamp_str.find(")", nanosec_start)
+
+    # Extract sec and nanosec as integers (default to 0 if empty)
+    if sec_start != -1 and sec_end != -1:
+        sec_str = timestamp_str[sec_start + 4 : sec_end]
+        sec = int(sec_str) if sec_str else 0  # Default to 0 if empty
+    else:
+        sec = 0  # Default to 0 if not found
+
+    if nanosec_start != -1 and nanosec_end != -1:
+        nanosec_str = timestamp_str[nanosec_start + 8 : nanosec_end]
+        nanosec = int(nanosec_str) if nanosec_str else 0  # Default to 0 if empty
+    else:
+        nanosec = 0  # Default to 0 if not found
+
+    return sec + nanosec * 1e-9
+
+
+def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int):
     # this will include all of the data structure by trajectory and robot IDs
     trajectory_robot_data = {}
 
@@ -49,7 +91,19 @@ def create_dataset(data_path):
             # read robot info for this robot and trajectory
             data_df = pd.read_csv(
                 data_path / f"output_robot{robot_id}data/out{traj_id}.csv",
-                usecols=["current_time", "goal_status"],
+                usecols=["ros_left_stamp", "goal_status"],
+            )
+
+            data_df["ros_left_stamp"] = data_df["ros_left_stamp"].apply(
+                parse_ros_timestamp
+            )
+
+            data_df["goal_status"] = data_df["goal_status"].apply(
+                lambda x: (
+                    "other"
+                    if x in ["(unknown)", "initial position", "stopped (unknown)"]
+                    else x
+                )
             )
 
             # get image directory for the OTHER robot, since it is the one seeing THIS robot
@@ -68,12 +122,22 @@ def create_dataset(data_path):
                 # creates a df with two columns: image filenames, and timestamp of each image in seconds
                 images_df = get_images_df_from_txt(robot_detected, camera_img_dir)
 
+                if downsample_sequence:
+                    images_df = images_df[
+                        images_df["ros_left_stamp"].isin(
+                            downsample(
+                                l=images_df["ros_left_stamp"].to_list(),
+                                imgs_per_sec=imgs_per_sec,
+                            )
+                        )
+                    ]
+
                 # for each image, find the row of the original frame with the closest timestamp
-                image_label_pairs = pd.merge_asof(
+                image_label_pairs = pd.merge(
                     images_df,
                     data_df,
-                    on="current_time",
-                    direction="nearest",
+                    on="ros_left_stamp",
+                    how="inner",
                 )
 
                 # create a new nested dict
@@ -86,59 +150,184 @@ def create_dataset(data_path):
 
 
 class DetectedRobotImages(Dataset):
-    def __init__(self, path_to_dataset_root: os.PathLike):
-        self.trajectory_robot_data = create_dataset(path_to_dataset_root)
-        self.image_paths = []
-        self.labels = []
+    def __init__(
+        self,
+        downsample_img_by: int,
+        downsample_sequence: bool,
+        imgs_per_sec: int,
+        split: str,
+        original_dataset_root: Path,
+    ):
 
-        for trajectory_id in range(10):
-            for robot_id in [1, 2]:
-                for camera in ["left", "right"]:
-                    self.image_paths.extend(
-                        self.trajectory_robot_data[trajectory_id][robot_id][camera][0]
-                    )
-                    self.labels.extend(
-                        self.trajectory_robot_data[trajectory_id][robot_id][camera][1]
-                    )
+        self.split = split
+        self.folder_path = (
+            Path(__file__).parent.parent
+            / "data"
+            / f"dataset_{downsample_img_by}_{downsample_sequence}_{imgs_per_sec}"
+        )
+
+        # if the saved dataset exists, just load it
+        if os.path.exists(self.folder_path):
+            self.load_dataset()
+        else:
+            # if the saved dataset doesn't exist, and you don't have
+            # access to the original dataset either, you are in trouble
+            if not os.path.exists(original_dataset_root):
+                raise RuntimeError(
+                    "You have neither a saved dataset nor access to the original dataset, seek help"
+                )
+
+            # if the saved dataset doesn't exist, but you have access
+            # to the original dataset, create this version and save it
+            else:
+                self.trajectory_robot_data = create_dataset(
+                    original_dataset_root,
+                    downsample_sequence,
+                    imgs_per_sec,
+                )
+
+                self.save_dataset(self.folder_path)
+                self.load_dataset()
+
+        self.label_idx_mapping = {
+            "other": 0,
+            "moving to Station1": 1,
+            "moving to Station2": 2,
+            "moving to Station3": 3,
+            "moving to Station4": 4,
+            "moving to Station5": 5,
+            "moving to Station6": 6,
+            "stopped at Station1": 7,
+            "stopped at Station2": 8,
+            "stopped at Station3": 9,
+            "stopped at Station4": 10,
+            "stopped at Station5": 11,
+            "stopped at Station6": 12,
+        }
+
+        # specify image downsampling
+        img_height = 720 / downsample_img_by
+        img_width = 1280 / downsample_img_by
+        assert img_height.is_integer() and img_width.is_integer()
+        self.transform = Resize((int(img_height), int(img_width)))
 
     def __len__(self):
         return len(self.image_paths)
 
-    def __getitem__(self, x):
-        image = read_image(self.image_paths[x])
-        label = self.labels[x]
+    def __getitem__(self, index):
+        tensor_img = self.transform(read_image(self.image_paths[index]) / 255)
+        one_hot_label = torch.Tensor(
+            [
+                1 if idx == self.label_idx_mapping[self.labels[index]] else 0
+                for idx in range(len(self.label_idx_mapping))
+            ]
+        )
 
-        return image, label
+        return tensor_img, one_hot_label
 
-    def get_action_distribution_per_trajectory(self):
-        data = {
-            "goal_label": [
-                "(unknown)",
-                "initial position",
-                "moving to Station1",
-                "moving to Station2",
-                "moving to Station3",
-                "moving to Station4",
-                "moving to Station5",
-                "moving to Station6",
-                "stopped (unknown)",
-                "stopped at Station1",
-                "stopped at Station2",
-                "stopped at Station3",
-                "stopped at Station4",
-                "stopped at Station5",
-                "stopped at Station6",
-            ],
-        }
+    def load_dataset(self):
+        # make this into actual cross-validation
+        match self.split:
+            case "train":
+                traj_ids_in_split = range(0, 6)
+            case "val":
+                traj_ids_in_split = range(6, 8)
+            case "test":
+                traj_ids_in_split = range(8, 10)
+            case "all":
+                traj_ids_in_split = range(0, 10)
+            case _:
+                raise ValueError(
+                    "arg 'split' should be 'train', 'val', 'test', or 'all'"
+                )
+
+        self.image_paths = []
+        self.labels = []
+
+        for trajectory_id in traj_ids_in_split:
+            for robot_id in [1, 2]:
+                for camera in ["left", "right"]:
+                    this_folder = (
+                        self.folder_path / str(trajectory_id) / str(robot_id) / camera
+                    )
+
+                    # load the labels for these images
+                    with open(this_folder / "img_label_mapping.json", "r") as f:
+                        img_label_mapping = json.load(f)
+
+                    # for each image in the directory, append its path and label
+                    for filename in os.listdir(this_folder):
+                        if filename.endswith("png"):
+                            self.image_paths.append(this_folder / filename)
+                            self.labels.append(img_label_mapping[filename])
+
+    def save_dataset(self, folder_path):
+        for trajectory_id in range(10):
+            for robot_id in [1, 2]:
+                for camera in ["left", "right"]:
+                    # create folder for this video, this robot, and this camera
+                    this_folder = (
+                        folder_path / str(trajectory_id) / str(robot_id) / camera
+                    )
+                    os.makedirs(this_folder)
+
+                    full_img_paths, labels = self.trajectory_robot_data[trajectory_id][
+                        robot_id
+                    ][camera]
+
+                    # keep just the image filename instead of the full path
+                    img_filenames = [
+                        str(path).split("/")[-1] for path in full_img_paths
+                    ]
+
+                    # save dictionary with image-label mapping
+                    img_label_mapping = dict(zip(img_filenames, labels))
+
+                    with open(this_folder / "img_label_mapping.json", "w") as f:
+                        json.dump(img_label_mapping, f)
+
+                    # save each image in this directory
+                    for img_path in self.trajectory_robot_data[trajectory_id][robot_id][
+                        camera
+                    ][0]:
+                        shutil.copy(img_path, this_folder)
+
+    def print_action_distribution(self):
+        occurrences_all = Counter(self.labels)
+
+        for name in sorted(occurrences_all.keys()):
+            print(f"{name:<30} {occurrences_all[name]}")
+        print("-------------------------------------")
+        print(f"{'total':<30} {len(self)}")
+
+    def get_action_distribution_per_trajectory(self, plot: bool):
+        # TODO: doesn't work right now
+        data = {}
 
         for trajectory_id in range(10):
             for robot_id in [1, 2]:
                 l = self.trajectory_robot_data[trajectory_id][robot_id]["left"][1]
                 r = self.trajectory_robot_data[trajectory_id][robot_id]["right"][1]
                 occurrences = Counter(l + r)
-                data[f"Trajectory {trajectory_id}, Robot {robot_id}"] = [
-                    occurrences[label] for label in data["goal_label"]
+
+                this_traj = f"Trajectory {trajectory_id}, Robot {robot_id}"
+                data[this_traj] = [
+                    occurrences[label] for label in self.label_idx_mapping.keys()
                 ]
+        
+        if plot:
+            df = pd.DataFrame(data)
+            df.plot.bar(
+                x=self.label_idx_mapping,
+                subplots=True,
+                layout=(10, 2),
+                sharey=True,
+                legend=False,
+                color="blue",
+            )
+            plt.tight_layout()
+            plt.show()
+            plt.savefig("distribution.png")
 
         return data
 
@@ -147,21 +336,12 @@ if __name__ == "__main__":
     path_to_dataset_root = (
         Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_2"
     )
-    dataset = DetectedRobotImages(path_to_dataset_root)
-
-    # action distribution across all trajectories
-    occurrences_all = Counter(dataset.labels)
-
-    # get the action distribution per trajectory, turn it to a df, and plot it
-    dist = dataset.get_action_distribution_per_trajectory()
-    df = pd.DataFrame(dist)
-    df.plot.bar(
-        x="goal_label",
-        subplots=True,
-        layout=(10, 2),
-        sharey=True,
-        legend=False,
-        color="blue",
+    dataset = DetectedRobotImages(
+        downsample_img_by=8,
+        downsample_sequence=True,
+        imgs_per_sec=2,
+        split="all",
+        original_dataset_root=path_to_dataset_root,
     )
-    plt.tight_layout()
-    plt.show()
+
+    dataset.print_action_distribution()
