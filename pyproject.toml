@@ -12,6 +12,8 @@ pandas = "^2.2.3"
 black = "^24.10.0"
 torchvision = "^0.20.1"
 matplotlib = "^3.9.2"
+rich = "^13.9.4"
+torchmetrics = "^1.6.1"
 
 
 [build-system]
