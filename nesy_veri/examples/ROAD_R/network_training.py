@@ -147,7 +147,7 @@ def get_road_network(
             num_classes=2,
             softmax=False if labels == "objects" else True,
         )
-        net.load_state_dict(torch.load(model_path, weights_only=True, map_location=torch.device('cuda:1')))
+        net.load_state_dict(torch.load(model_path, weights_only=True, map_location=torch.device('cuda')))
         net.eval()
     else:
         net = train_road_network(
@@ -157,6 +157,7 @@ def get_road_network(
             model_path,
             device,
             num_epochs,
+            batch_size=256
         )
 
     return net
@@ -169,7 +170,7 @@ if __name__ == "__main__":
     num_epochs_objects = 20
     num_epochs_actions = 10
     model_dir = Path(__file__).parent / "checkpoints/model_checkpoints"
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     object_net = get_road_network(
         model_dir,

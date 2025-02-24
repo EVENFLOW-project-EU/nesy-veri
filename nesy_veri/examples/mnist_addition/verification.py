@@ -87,6 +87,7 @@ if __name__ == "__main__":
             correctly_classified_idxs,
         ) = get_bounded_modules_and_samples_to_verify(num_digits, test_dataset)
 
+        correctly_classified_idxs = correctly_classified_idxs[:100]
         # check what happens for several epsilons
         for method in ['ibp','crown-ibp']: #crown is getting OOM issue 
             print(f"Method: {method}")
@@ -118,7 +119,7 @@ if __name__ == "__main__":
 
                 print(
                     f"Epsilon: {epsilon:<15}",
-                    f"#total: {len(test_dataset)}, \t ",
-                    f"#correct: {len(correctly_classified_idxs)}, {round(((len(correctly_classified_idxs) / len(test_dataset))*100), 2)}% \t ",
-                    f"#robust correct: {num_samples_robust}, {round(((num_samples_robust / len(test_dataset))*100), 2)}% ",
+                    f"#total: {100}, \t ",
+                    f"#correct: {len(correctly_classified_idxs)}, {round(((len(correctly_classified_idxs) / 100)*100), 2)}% \t ",
+                    f"#robust correct: {num_samples_robust}, {round(((num_samples_robust / 100)*100), 2)}% ",
                 )

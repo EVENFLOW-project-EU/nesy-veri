@@ -102,7 +102,7 @@ class MultiDigitAdditionDataset(Dataset):
     def __init__(self, train: bool, num_digits: int):
         self.num_digits = num_digits
         self.dataset = MNIST(
-            root="data/",
+            root="~/data/mnist",
             train=train,
             download=True,
             transform=transforms.Compose(

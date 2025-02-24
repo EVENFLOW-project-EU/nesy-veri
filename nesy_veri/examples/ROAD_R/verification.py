@@ -22,7 +22,7 @@ if __name__ == "__main__":
     num_epochs_objects = 20
     num_epochs_actions = 10
     model_dir = Path(__file__).parent / "checkpoints/model_checkpoints"
-    device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     object_net = get_road_network(
         model_dir,
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     gen.manual_seed(0)
 
     dataset = ROADRPropositional(
-        dataset_path=Path(__file__).parents[3] / "dataset",
+        dataset_path=Path.home() / "data/road-r/",
         subset="all",
         label_level="both",
         sample_every_n=sample_every_n,
@@ -68,6 +68,10 @@ if __name__ == "__main__":
         for idx, (input_img, _) in enumerate(test_dataset)
         if nets_and_circuit(input_img) > 0.5
     ]
+    total = 0
+    for id, (input_img, _) in enumerate(test_dataset):
+        total+=1
+    print(len(safe_idxs)/total)
 
     register_custom_op("onnx::Softmax", CustomBoundSoftmax)
     # register_custom_op("onnx::Concat", CustomConcat)
@@ -87,7 +91,6 @@ if __name__ == "__main__":
         }
     )
     
-    # safe_idxs = safe_idxs[:1]
     for method in ['ibp','crown-ibp']: #'crown', 'forward' both getting OOM issue
         print(f"Method: {method}")
         for epsilon in [1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 2e-3, 3e-3, 4e-3, 5e-3]:
@@ -96,7 +99,7 @@ if __name__ == "__main__":
 
             for idx in track(safe_idxs):
                 input_img, labels = test_dataset[idx]
-
+ 
                 ptb = PerturbationLpNorm(norm=np.inf, eps=epsilon)
                 ptb_input = BoundedTensor(input_img, ptb)
 

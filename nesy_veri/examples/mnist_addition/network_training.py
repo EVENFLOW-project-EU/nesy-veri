@@ -50,8 +50,8 @@ def train_mnist_network(
         ]
     )
 
-    train_dataset = MNIST(root="data/", train=True, download=True, transform=transform)
-    test_dataset = MNIST(root="data/", train=False, download=True, transform=transform)
+    train_dataset = MNIST(root="~/data/mnist/", train=True, download=True, transform=transform)
+    test_dataset = MNIST(root="~/data/mnist/", train=False, download=True, transform=transform)
 
     train_dl = DataLoader(train_dataset, batch_size, shuffle=True)
     test_dl = DataLoader(test_dataset, batch_size, shuffle=True)
