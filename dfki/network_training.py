@@ -1,4 +1,3 @@
-import os
 import torch
 import torchmetrics
 from pathlib import Path
@@ -14,7 +13,8 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from dfki.new_data import DetectedRobotImages
+from dfki.data_v2 import DetectedRobotImages
+from dfki.network_definitions import CNN3D, RobotNet
 
 
 def run_dataloader(
@@ -101,53 +101,51 @@ def run_dataloader(
     return network
 
 
-class RobotNet(nn.Module):
-    def __init__(self, num_classes: int, softmax: bool):
-        super(RobotNet, self).__init__()
-
-        self.size = 8 * 8 * 17
-        self.encoder = nn.Sequential(
-            nn.Conv2d(3, 8, 10),
-            nn.MaxPool2d(2, 2),
-            nn.ReLU(True),
-            nn.Conv2d(8, 16, 5),
-            nn.MaxPool2d(2, 2),
-            nn.ReLU(True),
-            nn.Conv2d(16, 16, 3),
-            nn.MaxPool2d(2, 2),
-            nn.ReLU(True),
-            nn.Conv2d(16, 8, 3),
-            nn.MaxPool2d(2, 2),
-            nn.ReLU(True),
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Linear(self.size, 20),
-            nn.ReLU(),
-            nn.Linear(20, num_classes),
-            nn.Softmax() if softmax else nn.Sigmoid(),
-        )
-
-    def forward(self, x):
-        x = self.encoder(x)
-        x = x.view(-1, self.size)
-        x = self.classifier(x)
-        return x
-
-
 if __name__ == "__main__":
 
     # declare datasets variables
-    downsample_img_by = 8
-    downsample_sequence = True
-    imgs_per_sec = 2
+    image_sequences = True
     dataset_root = Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_2"
 
-    train_dataset = DetectedRobotImages(downsample_img_by, downsample_sequence, imgs_per_sec, "train", dataset_root)
-    val_dataset = DetectedRobotImages(downsample_img_by, downsample_sequence, imgs_per_sec, "val", dataset_root)
+    train_dataset, val_dataset = [
+        DetectedRobotImages(
+            downsample_img_by=8,
+            downsample_sequence=True,
+            imgs_per_sec=1,
+            image_sequences=image_sequences,
+            imgs_per_sequence=5,
+            time_spacing=1.0,
+            split=split,
+            original_dataset_root=dataset_root,
+        )
+        for split in ["train", "val"]
+    ]
 
     # create CNN for training
-    net = RobotNet(num_classes=len(train_dataset[0][1]), softmax=True)
+    if not image_sequences:
+        net = RobotNet(num_classes=len(train_dataset[0][1]), softmax=True)
+    else:
+        net = CNN3D()
+
+    # for i in range(0, 100, 10):
+    #     tensor = train_dataset[i][0]
+    #     import numpy as np
+    #     import matplotlib.pyplot as plt 
+    #     # Permute to (5, 3, 90, 160) to iterate over images
+    #     tensor = tensor.permute(1, 0, 2, 3)  # Now (5, 3, 90, 160)
+
+    #     # Concatenate along width (dim=3)
+    #     concatenated_image = torch.cat([tensor[i] for i in range(5)], dim=2)  # (3, 90, 800)
+
+    #     # Convert to NumPy for visualization
+    #     image_np = concatenated_image.permute(1, 2, 0).cpu().numpy()  # (90, 800, 3)
+
+    #     plt.imsave(f"test_images/output_{i}.png", np.clip(image_np, 0, 1))
+
+    #     # # Display the image
+    #     # plt.imshow(np.clip(image_np, 0, 1))  # Clip to valid range if needed
+    #     # plt.axis("off")
+    #     # plt.show()
 
     # define training config
     lr = 1e-3

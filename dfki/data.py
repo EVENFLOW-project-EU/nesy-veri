@@ -3,6 +3,7 @@ import json
 import torch
 import shutil
 import pandas as pd
+import seaborn as sns
 from pathlib import Path
 from collections import Counter
 import matplotlib.pyplot as plt
@@ -22,7 +23,7 @@ def downsample(l, imgs_per_sec):
     return downsampled
 
 
-def get_images_df_from_txt(txt_file, image_dir):
+def get_images_df_from_txt(txt_file, image_dir) -> pd.DataFrame:
     image_files = []
     image_timestamps = []
 
@@ -75,9 +76,57 @@ def parse_ros_timestamp(timestamp_str):
     return sec + nanosec * 1e-9
 
 
+def get_image_sequences(images_df, data_df, num_imgs=5, time_spacing=1):
+    result_list = []
+    min_required_time = (num_imgs - 1) * time_spacing
+    
+    for _, img_row in images_df.iterrows():
+        img_stamp = img_row['ros_left_stamp']
+        
+        # Ensure enough historical data exists
+        if img_stamp - min_required_time < images_df['ros_left_stamp'].min():
+            continue  # Skip if not enough history
+        
+        # Collect image paths spaced by time_spacing seconds
+        image_paths = []
+        for i in range(min_required_time, -1, -time_spacing):  # Start from required seconds before
+            matching_rows = images_df.loc[images_df['ros_left_stamp'] == img_stamp - i, 'filename']
+            if not matching_rows.empty:
+                image_paths.append(matching_rows.values[0])
+            else:
+                break  # Skip this entry if any timestamp is missing
+        
+        # Ensure we collected the required number of images
+        if len(image_paths) != num_imgs:
+            continue
+        
+        goal_status = data_df.loc[data_df['ros_left_stamp'] == img_stamp, 'goal_status'].values[0]
+        
+        result_list.append((image_paths, goal_status))
+    
+    return result_list
+
+
 def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int):
     # this will include all of the data structure by trajectory and robot IDs
     trajectory_robot_data = {}
+
+    # plt.rcParams.update({'font.size': 10})  # Adjust font size as needed
+    sns.set_style(style="whitegrid")
+    fig, axes = plt.subplots(nrows=2, ncols=10, figsize=(100, 15), sharey=False)
+    custom_order = [
+        "Spawing on floor", "initial position",
+        "moving to Station1", "stopped at Station1",
+        "moving to Station2", "stopped at Station2",
+        "moving to Station3", "stopped at Station3",
+        "moving to Station4", "stopped at Station4",
+        "moving to Station5", "stopped at Station5",
+        "moving to Station6", "stopped at Station6",
+        "stopped (unknown)", "(unknown)",
+    ]
+
+    fig.suptitle("Goal Status Over Time")
+
 
     for traj_id in range(10):
         # create a new dict for this trajectory
@@ -98,13 +147,13 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
                 parse_ros_timestamp
             )
 
-            data_df["goal_status"] = data_df["goal_status"].apply(
-                lambda x: (
-                    "other"
-                    if x in ["(unknown)", "initial position", "stopped (unknown)"]
-                    else x
-                )
-            )
+            # data_df["goal_status"] = data_df["goal_status"].apply(
+            #     lambda x: (
+            #         "other"
+            #         if x in ["(unknown)", "initial position", "stopped (unknown)"]
+            #         else x
+            #     )
+            # )
 
             # get image directory for the OTHER robot, since it is the one seeing THIS robot
             other_robot = 1 if robot_id == 2 else 2
@@ -112,6 +161,14 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
                 data_path
                 / f"output_rosbag{other_robot}/bag{traj_id}/images/traj_{traj_id}"
             )
+
+            # Create plotting df and highlight conditions
+            temp = data_df
+            temp["highlight"] = "Normal"  # Default
+            temp["goal_status"] = pd.Categorical(
+                temp["goal_status"], categories=custom_order, ordered=True
+            )
+
 
             for camera in ["left", "right"]:
                 # get list of images that contain the other robot for this camera
@@ -131,6 +188,8 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
                             )
                         )
                     ]
+                
+                get_image_sequences(images_df, data_df, num_imgs=5, time_spacing=1)
 
                 # for each image, find the row of the original frame with the closest timestamp
                 image_label_pairs = pd.merge(
@@ -140,11 +199,37 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
                     how="inner",
                 )
 
+                # Highlight points in plotting df based on whether
+                # they exist in the left/right cam of the other robot
+                temp.loc[
+                    temp.set_index(["ros_left_stamp", "goal_status"]).index.isin(
+                        image_label_pairs.set_index(
+                            ["ros_left_stamp", "goal_status"]
+                        ).index
+                    ),
+                    "highlight",
+                ] = (
+                    "Left (Orange)" if camera == "left" else "Right (Green)"
+                )
+
                 # create a new nested dict
                 trajectory_robot_data[traj_id][robot_id][camera] = (
                     list(image_label_pairs["filename"]),
                     list(image_label_pairs["goal_status"]),
                 )
+
+            # Plot all points normally (blue)
+            sns.scatterplot(ax=axes[robot_id-1][traj_id], data=temp[temp["highlight"] == "Normal"], x="ros_left_stamp", y="goal_status", color="blue" ,alpha=1.0, s=10, label="Normal", edgecolors=None)
+            # Plot points from left camera
+            sns.scatterplot(ax=axes[robot_id-1][traj_id], data=temp[temp["highlight"] == "Left (Orange)"], x="ros_left_stamp", y="goal_status", color="orange", alpha=1.0, s=20, label=f"In R{other_robot}'s LEFT cam (Orange)")
+            # Plot points from right camera
+            sns.scatterplot(ax=axes[robot_id-1][traj_id], data=temp[temp["highlight"] == "Right (Green)"], x="ros_left_stamp", y="goal_status", color="green", alpha=1, s=20, label=f"In R{other_robot}'s RIGHT cam (Green)")
+            
+            axes[robot_id-1][traj_id].set_xlabel("Time")
+            axes[robot_id-1][traj_id].set_title(f"Trajectory {traj_id}, Robot {robot_id}")
+
+    plt.tight_layout(pad=2.0)
+    plt.savefig("dfki/trajectory_figures/all_trajectories_new.pdf", dpi=300, transparent=True)
 
     return trajectory_robot_data
 
@@ -314,7 +399,7 @@ class DetectedRobotImages(Dataset):
                 data[this_traj] = [
                     occurrences[label] for label in self.label_idx_mapping.keys()
                 ]
-        
+
         if plot:
             df = pd.DataFrame(data)
             df.plot.bar(
