@@ -5,6 +5,7 @@ import shutil
 import pandas as pd
 from pathlib import Path
 from typing import Optional
+from collections.abc import Iterable
 from torch.utils.data import Dataset
 from torchvision.io import read_image
 from torchvision.transforms import Resize
@@ -220,12 +221,6 @@ class DetectedRobotImages(Dataset):
         Number of images in each sequence. Used if `image_sequences` is True.
     time_spacing : float
         Time gap (in seconds) between consecutive images in a sequence. Used if `image_sequences` is True.
-    split : str
-        Dataset split to use, currently works naively.
-        'train' uses 6 of the 10 videos.
-        'test' uses 2 of the 10 videos.
-        'val' uses 2 of the 10 videos.
-        'all' uses all 10 videos.
     original_dataset_root : Path
         Root directory of the original dataset.
     """
@@ -238,11 +233,11 @@ class DetectedRobotImages(Dataset):
         image_sequences: bool,
         imgs_per_sequence: int,
         time_spacing: float,
-        split: str,
+        video_idxs: Iterable[int],
         original_dataset_root: Optional[Path] = None,
     ):
 
-        self.split = split
+        self.video_idxs = video_idxs
         self.folder_path = (
             Path(__file__).parent.parent
             / "data"
@@ -326,23 +321,11 @@ class DetectedRobotImages(Dataset):
         return tensor_img, one_hot_label
 
     def load_dataset(self):
-        # TODO: make this into actual cross-validation
-        match self.split:
-            case "train":
-                traj_ids_in_split = range(0, 6)
-            case "val":
-                traj_ids_in_split = range(6, 8)
-            case "test":
-                traj_ids_in_split = range(8, 10)
-            case "all":
-                traj_ids_in_split = range(0, 10)
-            case _:
-                raise ValueError("'split' should be 'train', 'val', 'test', or 'all'")
-
         self.image_paths = []
         self.labels = []
 
-        for trajectory_id in traj_ids_in_split:
+        # for trajectory_id in sorted(os.listdir(self.folder_path)):
+        for trajectory_id in self.video_idxs:
             for robot_id in [1, 2]:
                 for camera in ["left", "right"]:
                     this_folder = (
@@ -380,7 +363,7 @@ class DetectedRobotImages(Dataset):
                                 self.labels.append(img_label_mapping[filename])
 
     def save_dataset(self, folder_path):
-        for trajectory_id in range(10):
+        for trajectory_id in self.trajectory_robot_data.keys():
             for robot_id in [1, 2]:
                 for camera in ["left", "right"]:
                     # create folder for this video, this robot, and this camera
@@ -432,12 +415,12 @@ if __name__ == "__main__":
     dataset = DetectedRobotImages(
         downsample_img_by=8,
         downsample_sequence=True,
-        imgs_per_sec=1,
+        imgs_per_sec=2,
         image_sequences=False,
         imgs_per_sequence=5,
         time_spacing=1.0,
-        split="all",
         original_dataset_root=path_to_dataset_root,
+        video_idxs=[0, 1, 2, 3, 4, 5],
     )
 
     print(dataset[0][0].shape)

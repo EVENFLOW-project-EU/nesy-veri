@@ -7,7 +7,7 @@ class RobotNet(nn.Module):
     def __init__(self, num_classes: int, softmax: bool):
         super(RobotNet, self).__init__()
 
-        self.size = 8 * 8 * 17
+        self.size = 8 * 3 * 7
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 8, 10),
             nn.MaxPool2d(2, 2),
