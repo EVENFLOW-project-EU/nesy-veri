@@ -5,48 +5,12 @@ import shutil
 import pandas as pd
 import seaborn as sns
 from pathlib import Path
-from collections import Counter
+from typing import Optional
 import matplotlib.pyplot as plt
+from collections.abc import Iterable
+from torch.utils.data import Dataset
 from torchvision.io import read_image
 from torchvision.transforms import Resize
-from torch.utils.data import Dataset
-
-
-def downsample(l, imgs_per_sec):
-    checkpoint = -1
-    downsampled = []
-    time_til_next_img = 1 / imgs_per_sec
-    for idx in range(len(l)):
-        if l[idx] - checkpoint > time_til_next_img:
-            checkpoint = l[idx]
-            downsampled.append(checkpoint)
-    return downsampled
-
-
-def get_images_df_from_txt(txt_file, image_dir) -> pd.DataFrame:
-    image_files = []
-    image_timestamps = []
-
-    with open(txt_file) as f:
-        for image_filename in f.read().splitlines():
-            if image_filename.endswith(".png"):
-                seconds, nanoseconds = map(
-                    int, image_filename.replace(".png", "").split("_")
-                )
-                timestamp = seconds + nanoseconds * 1e-9
-
-                image_files.append(image_dir / image_filename)
-                image_timestamps.append(timestamp)
-
-    images_df = pd.DataFrame(
-        {
-            "filename": image_files,
-            "ros_left_stamp": image_timestamps,
-        }
-    )
-    images_df = images_df.sort_values("ros_left_stamp").reset_index(drop=True)
-
-    return images_df
 
 
 def parse_ros_timestamp(timestamp_str):
@@ -76,57 +40,82 @@ def parse_ros_timestamp(timestamp_str):
     return sec + nanosec * 1e-9
 
 
-def get_image_sequences(images_df, data_df, num_imgs=5, time_spacing=1):
-    result_list = []
+def get_images_df_from_txt(txt_file, image_dir) -> pd.DataFrame:
+    image_files = []
+    image_timestamps = []
+
+    with open(txt_file) as f:
+        for image_filename in f.read().splitlines():
+            if image_filename.endswith(".png"):
+                seconds, nanoseconds = map(
+                    int, image_filename.replace(".png", "").split("_")
+                )
+                timestamp = seconds + nanoseconds * 1e-9
+
+                image_files.append(image_dir / image_filename)
+                image_timestamps.append(timestamp)
+
+    images_df = pd.DataFrame(
+        {
+            "filename": image_files,
+            "ros_left_stamp": image_timestamps,
+        }
+    )
+    images_df = images_df.sort_values("ros_left_stamp").reset_index(drop=True)
+
+    return images_df
+
+
+def downsample(l, imgs_per_sec):
+    checkpoint = -1
+    downsampled = []
+    time_til_next_img = 1 / imgs_per_sec
+    for idx in range(len(l)):
+        if l[idx] - checkpoint > time_til_next_img:
+            checkpoint = l[idx]
+            downsampled.append(checkpoint)
+    return downsampled
+
+
+def get_labelled_sequences(images_df, data_df, num_imgs, time_spacing):
+    image_sequences = []
+    goal_labels = []
     min_required_time = (num_imgs - 1) * time_spacing
-    
+
     for _, img_row in images_df.iterrows():
-        img_stamp = img_row['ros_left_stamp']
-        
+        img_stamp = img_row["ros_left_stamp"]
+
         # Ensure enough historical data exists
-        if img_stamp - min_required_time < images_df['ros_left_stamp'].min():
+        if img_stamp - min_required_time < images_df["ros_left_stamp"].min():
             continue  # Skip if not enough history
-        
-        # Collect image paths spaced by time_spacing seconds
+
+        # Collect image paths spaced apart by time_spacing seconds
         image_paths = []
-        for i in range(min_required_time, -1, -time_spacing):  # Start from required seconds before
-            matching_rows = images_df.loc[images_df['ros_left_stamp'] == img_stamp - i, 'filename']
-            if not matching_rows.empty:
-                image_paths.append(matching_rows.values[0])
-            else:
-                break  # Skip this entry if any timestamp is missing
-        
-        # Ensure we collected the required number of images
-        if len(image_paths) != num_imgs:
-            continue
-        
-        goal_status = data_df.loc[data_df['ros_left_stamp'] == img_stamp, 'goal_status'].values[0]
-        
-        result_list.append((image_paths, goal_status))
-    
-    return result_list
+        timestamps = [img_stamp - j * time_spacing for j in range(num_imgs)]
+
+        for ts in timestamps:
+            closest_idx = (images_df["ros_left_stamp"] - ts).abs().idxmin()
+            image_paths.append(images_df.loc[closest_idx, "filename"])
+
+        closest_goal_idx = (data_df["ros_left_stamp"] - img_stamp).abs().idxmin()
+        goal_status = data_df.iloc[closest_goal_idx]["goal_status"]
+
+        image_sequences.append(image_paths)
+        goal_labels.append(goal_status)
+
+    return image_sequences, goal_labels
 
 
-def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int):
+def create_dataset(
+    data_path: Path,
+    downsample_sequence: bool,
+    imgs_per_sec: int,
+    image_sequences: bool,
+    imgs_per_sequence: int,
+    time_spacing: float,
+):
     # this will include all of the data structure by trajectory and robot IDs
     trajectory_robot_data = {}
-
-    # plt.rcParams.update({'font.size': 10})  # Adjust font size as needed
-    sns.set_style(style="whitegrid")
-    fig, axes = plt.subplots(nrows=2, ncols=10, figsize=(100, 15), sharey=False)
-    custom_order = [
-        "Spawing on floor", "initial position",
-        "moving to Station1", "stopped at Station1",
-        "moving to Station2", "stopped at Station2",
-        "moving to Station3", "stopped at Station3",
-        "moving to Station4", "stopped at Station4",
-        "moving to Station5", "stopped at Station5",
-        "moving to Station6", "stopped at Station6",
-        "stopped (unknown)", "(unknown)",
-    ]
-
-    fig.suptitle("Goal Status Over Time")
-
 
     for traj_id in range(10):
         # create a new dict for this trajectory
@@ -140,20 +129,21 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
             # read robot info for this robot and trajectory
             data_df = pd.read_csv(
                 data_path / f"output_robot{robot_id}data/out{traj_id}.csv",
-                usecols=["ros_left_stamp", "goal_status"],
+                usecols=["ros_left_stamp", "goal_status"],  # type: ignore
             )
 
             data_df["ros_left_stamp"] = data_df["ros_left_stamp"].apply(
                 parse_ros_timestamp
             )
 
-            # data_df["goal_status"] = data_df["goal_status"].apply(
-            #     lambda x: (
-            #         "other"
-            #         if x in ["(unknown)", "initial position", "stopped (unknown)"]
-            #         else x
-            #     )
-            # )
+            # combine all unimportant labels into one
+            data_df["goal_status"] = data_df["goal_status"].apply(
+                lambda x: (
+                    "other"
+                    if x in ["(unknown)", "initial position", "stopped (unknown)"]
+                    else x
+                )
+            )
 
             # get image directory for the OTHER robot, since it is the one seeing THIS robot
             other_robot = 1 if robot_id == 2 else 2
@@ -161,14 +151,6 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
                 data_path
                 / f"output_rosbag{other_robot}/bag{traj_id}/images/traj_{traj_id}"
             )
-
-            # Create plotting df and highlight conditions
-            temp = data_df
-            temp["highlight"] = "Normal"  # Default
-            temp["goal_status"] = pd.Categorical(
-                temp["goal_status"], categories=custom_order, ordered=True
-            )
-
 
             for camera in ["left", "right"]:
                 # get list of images that contain the other robot for this camera
@@ -188,8 +170,124 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
                             )
                         )
                     ]
-                
-                get_image_sequences(images_df, data_df, num_imgs=5, time_spacing=1)
+
+                if image_sequences:
+                    # get a sequence of images leading up to each image in imaged_df
+                    img_sequences, goal_labels = get_labelled_sequences(
+                        images_df,
+                        data_df,
+                        num_imgs=imgs_per_sequence,
+                        time_spacing=time_spacing,
+                    )
+
+                    # create a new nested dict
+                    trajectory_robot_data[traj_id][robot_id][camera] = (
+                        img_sequences,
+                        goal_labels,
+                    )
+                else:
+                    # for each image, find the row of the original frame with the closest timestamp
+                    image_label_pairs = pd.merge(
+                        images_df,
+                        data_df,
+                        on="ros_left_stamp",
+                        how="inner",
+                    )
+
+                    # create a new nested dict
+                    trajectory_robot_data[traj_id][robot_id][camera] = (
+                        list(image_label_pairs["filename"]),
+                        list(image_label_pairs["goal_status"]),
+                    )
+
+    return trajectory_robot_data
+
+
+def plot_trajectories(
+    data_path: Path,
+    downsample_sequence: bool,
+    imgs_per_sec: int,
+    num_trajectories: int,
+    filename: str,
+):
+    sns.set_style(style="whitegrid")
+    fig, axes = plt.subplots(
+        nrows=2, ncols=num_trajectories, figsize=(100, 15), sharey=False
+    )
+    custom_order = [
+        "Spawing on floor",
+        "initial position",
+        "moving to Station1",
+        "stopped at Station1",
+        "moving to Station2",
+        "stopped at Station2",
+        "moving to Station3",
+        "stopped at Station3",
+        "moving to Station4",
+        "stopped at Station4",
+        "moving to Station5",
+        "stopped at Station5",
+        "moving to Station6",
+        "stopped at Station6",
+        "stopped (unknown)",
+        "(unknown)",
+    ]
+
+    fig.suptitle("Goal Status Over Time")
+
+    for traj_id in range(num_trajectories):
+        for robot_id in [1, 2]:
+            # read robot info for this robot and trajectory
+            data_df = pd.read_csv(
+                data_path / f"output_robot{robot_id}data/out{traj_id}.csv",
+                usecols=["ros_left_stamp", "goal_status"],  # type: ignore
+            )
+
+            data_df["ros_left_stamp"] = data_df["ros_left_stamp"].apply(
+                parse_ros_timestamp
+            )
+
+            # combine all unimportant labels into one
+            data_df["goal_status"] = data_df["goal_status"].apply(
+                lambda x: (
+                    "other"
+                    if x in ["(unknown)", "initial position", "stopped (unknown)"]
+                    else x
+                )
+            )
+
+            # get image directory for the OTHER robot, since it is the one seeing THIS robot
+            other_robot = 1 if robot_id == 2 else 2
+            image_dir = (
+                data_path
+                / f"output_rosbag{other_robot}/bag{traj_id}/images/traj_{traj_id}"
+            )
+
+            # Create plotting df and highlight conditions
+            temp = data_df
+            temp["highlight"] = "Normal"  # Default
+            temp["goal_status"] = pd.Categorical(
+                temp["goal_status"], categories=custom_order, ordered=True
+            )
+
+            for camera in ["left", "right"]:
+                # get list of images that contain the other robot for this camera
+                robot_detected = image_dir / f"detected_images_{camera}.txt"
+                camera_img_dir = image_dir / camera
+
+                # from the list of images containing the other robot, this
+                # creates a df with two columns: image filenames, and timestamp of each image in seconds
+                images_df = get_images_df_from_txt(robot_detected, camera_img_dir)
+
+                if downsample_sequence:
+                    images_df = images_df[
+                        images_df["ros_left_stamp"].isin(
+                            downsample(
+                                l=images_df["ros_left_stamp"].to_list(),
+                                imgs_per_sec=imgs_per_sec,
+                            )
+                        )
+                    ]
 
                 # for each image, find the row of the original frame with the closest timestamp
                 image_label_pairs = pd.merge(
@@ -212,44 +310,93 @@ def create_dataset(data_path: Path, downsample_sequence: bool, imgs_per_sec: int
                     "Left (Orange)" if camera == "left" else "Right (Green)"
                 )
 
-                # create a new nested dict
-                trajectory_robot_data[traj_id][robot_id][camera] = (
-                    list(image_label_pairs["filename"]),
-                    list(image_label_pairs["goal_status"]),
-                )
-
             # Plot all points normally (blue)
-            sns.scatterplot(ax=axes[robot_id-1][traj_id], data=temp[temp["highlight"] == "Normal"], x="ros_left_stamp", y="goal_status", color="blue" ,alpha=1.0, s=10, label="Normal", edgecolors=None)
+            sns.scatterplot(
+                ax=axes[robot_id - 1][traj_id],
+                data=temp[temp["highlight"] == "Normal"],
+                x="ros_left_stamp",
+                y="goal_status",
+                color="blue",
+                alpha=1.0,
+                s=10,
+                label="Normal",
+                edgecolors=None,
+            )
             # Plot points from left camera
-            sns.scatterplot(ax=axes[robot_id-1][traj_id], data=temp[temp["highlight"] == "Left (Orange)"], x="ros_left_stamp", y="goal_status", color="orange", alpha=1.0, s=20, label=f"In R{other_robot}'s LEFT cam (Orange)")
+            sns.scatterplot(
+                ax=axes[robot_id - 1][traj_id],
+                data=temp[temp["highlight"] == "Left (Orange)"],
+                x="ros_left_stamp",
+                y="goal_status",
+                color="orange",
+                alpha=1.0,
+                s=20,
+                label=f"In R{other_robot}'s LEFT cam (Orange)",
+            )
             # Plot points from right camera
-            sns.scatterplot(ax=axes[robot_id-1][traj_id], data=temp[temp["highlight"] == "Right (Green)"], x="ros_left_stamp", y="goal_status", color="green", alpha=1, s=20, label=f"In R{other_robot}'s RIGHT cam (Green)")
-            
-            axes[robot_id-1][traj_id].set_xlabel("Time")
-            axes[robot_id-1][traj_id].set_title(f"Trajectory {traj_id}, Robot {robot_id}")
+            sns.scatterplot(
+                ax=axes[robot_id - 1][traj_id],
+                data=temp[temp["highlight"] == "Right (Green)"],
+                x="ros_left_stamp",
+                y="goal_status",
+                color="green",
+                alpha=1,
+                s=20,
+                label=f"In R{other_robot}'s RIGHT cam (Green)",
+            )
+
+            axes[robot_id - 1][traj_id].set_xlabel("Time")
+            axes[robot_id - 1][traj_id].set_title(
+                f"Trajectory {traj_id}, Robot {robot_id}"
+            )
 
     plt.tight_layout(pad=2.0)
-    plt.savefig("dfki/trajectory_figures/all_trajectories_new.pdf", dpi=300, transparent=True)
-
-    return trajectory_robot_data
+    plt.savefig(f"dfki/trajectory_figures/{filename}.pdf", dpi=300, transparent=True)
 
 
 class DetectedRobotImages(Dataset):
+    """
+    Dataset class for parsing the robot simulation data and creating a dataset for task/location recognition.
+
+    Parameters
+    ----------
+    downsample_img_by : int
+        Factor by which to downsample images. A value of 2 means reducing each dimension by half.
+    downsample_sequence : bool
+        Whether to downsample the sequence itself by skipping frames.
+    imgs_per_sec : int
+        Number of images per second to retain when downsampling sequences. Used if `downsample_sequence` is True.
+    image_sequences : bool
+        Whether to provide additional history in the form of preceding images to the image of interest.
+        False: Each data point contains one image with its corresponding goal label.
+        True: Each data point contains a sequence of images and the goal label of the last image.
+    imgs_per_sequence : int
+        Number of images in each sequence. Used if `image_sequences` is True.
+    time_spacing : float
+        Time gap (in seconds) between consecutive images in a sequence. Used if `image_sequences` is True.
+    original_dataset_root : Path
+        Root directory of the original dataset.
+    """
+
     def __init__(
         self,
         downsample_img_by: int,
         downsample_sequence: bool,
         imgs_per_sec: int,
-        split: str,
-        original_dataset_root: Path,
+        image_sequences: bool,
+        imgs_per_sequence: int,
+        time_spacing: float,
+        video_idxs: Iterable[int],
+        original_dataset_root: Optional[Path] = None,
     ):
 
-        self.split = split
+        self.video_idxs = video_idxs
         self.folder_path = (
             Path(__file__).parent.parent
             / "data"
-            / f"dataset_{downsample_img_by}_{downsample_sequence}_{imgs_per_sec}"
+            / f"dataset_{downsample_img_by}_{downsample_sequence}_{imgs_per_sec}_{image_sequences}_{imgs_per_sequence}_{time_spacing}"
         )
+        self.image_sequences = image_sequences
 
         # if the saved dataset exists, just load it
         if os.path.exists(self.folder_path):
@@ -257,7 +404,9 @@ class DetectedRobotImages(Dataset):
         else:
             # if the saved dataset doesn't exist, and you don't have
             # access to the original dataset either, you are in trouble
-            if not os.path.exists(original_dataset_root):
+            if original_dataset_root is None or not os.path.exists(
+                original_dataset_root
+            ):
                 raise RuntimeError(
                     "You have neither a saved dataset nor access to the original dataset, seek help"
                 )
@@ -269,6 +418,9 @@ class DetectedRobotImages(Dataset):
                     original_dataset_root,
                     downsample_sequence,
                     imgs_per_sec,
+                    image_sequences,
+                    imgs_per_sequence,
+                    time_spacing,
                 )
 
                 self.save_dataset(self.folder_path)
@@ -290,6 +442,22 @@ class DetectedRobotImages(Dataset):
             "stopped at Station6": 12,
         }
 
+        # self.smaller_mapping = {
+        #     "other": 0,
+        #     "moving to Station1": 1,
+        #     "moving to Station2": 2,
+        #     "moving to Station3": 3,
+        #     "moving to Station4": 4,
+        #     "moving to Station5": 5,
+        #     "moving to Station6": 6,
+        #     "stopped at Station1": 1,
+        #     "stopped at Station2": 2,
+        #     "stopped at Station3": 3,
+        #     "stopped at Station4": 4,
+        #     "stopped at Station5": 5,
+        #     "stopped at Station6": 6,
+        # }
+
         # specify image downsampling
         img_height = 720 / downsample_img_by
         img_width = 1280 / downsample_img_by
@@ -300,36 +468,31 @@ class DetectedRobotImages(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, index):
-        tensor_img = self.transform(read_image(self.image_paths[index]) / 255)
-        one_hot_label = torch.Tensor(
-            [
-                1 if idx == self.label_idx_mapping[self.labels[index]] else 0
-                for idx in range(len(self.label_idx_mapping))
-            ]
-        )
+        # create a one-hot label based on the string label and the label-index mapping
+        one_hot_label = torch.zeros(len(set(self.label_idx_mapping.values())))
+        one_hot_label[self.label_idx_mapping[self.labels[index]]] = 1
+
+        # if each data sample contains only one image, read that image
+        if not self.image_sequences:
+            tensor_img = self.transform(read_image(self.image_paths[index]) / 255)
+
+        # else, read all the images in the sequence into a single tensor
+        else:
+            tensor_img = torch.stack(
+                [
+                    self.transform(read_image(img) / 255)
+                    for img in self.image_paths[index]
+                ]
+            ).permute(1, 0, 2, 3)
 
         return tensor_img, one_hot_label
 
     def load_dataset(self):
-        # make this into actual cross-validation
-        match self.split:
-            case "train":
-                traj_ids_in_split = range(0, 6)
-            case "val":
-                traj_ids_in_split = range(6, 8)
-            case "test":
-                traj_ids_in_split = range(8, 10)
-            case "all":
-                traj_ids_in_split = range(0, 10)
-            case _:
-                raise ValueError(
-                    "arg 'split' should be 'train', 'val', 'test', or 'all'"
-                )
-
         self.image_paths = []
         self.labels = []
 
-        for trajectory_id in traj_ids_in_split:
+        # for trajectory_id in sorted(os.listdir(self.folder_path)):
+        for trajectory_id in self.video_idxs:
             for robot_id in [1, 2]:
                 for camera in ["left", "right"]:
                     this_folder = (
@@ -340,14 +503,34 @@ class DetectedRobotImages(Dataset):
                     with open(this_folder / "img_label_mapping.json", "r") as f:
                         img_label_mapping = json.load(f)
 
-                    # for each image in the directory, append its path and label
-                    for filename in os.listdir(this_folder):
-                        if filename.endswith("png"):
-                            self.image_paths.append(this_folder / filename)
-                            self.labels.append(img_label_mapping[filename])
+                    # single image per sample
+                    if not self.image_sequences:
+                        # for each image in the directory, append its path and label
+                        # for filename in os.listdir(this_folder):
+                        for filename in img_label_mapping.keys():
+                            if filename.endswith("png"):
+                                self.image_paths.append(this_folder / filename)
+                                self.labels.append(img_label_mapping[filename])
+
+                    else:
+                        # load the labels for these images
+                        with open(this_folder / "img_sequence_mapping.json", "r") as f:
+                            img_sequence_mapping = json.load(f)
+
+                        # for each image in the directory, append its path and label
+                        # for filename in os.listdir(this_folder):
+                        for filename in img_label_mapping.keys():
+                            if filename.endswith("png"):
+                                self.image_paths.append(
+                                    [
+                                        this_folder / img_file
+                                        for img_file in img_sequence_mapping[filename]
+                                    ]
+                                )
+                                self.labels.append(img_label_mapping[filename])
 
     def save_dataset(self, folder_path):
-        for trajectory_id in range(10):
+        for trajectory_id in self.trajectory_robot_data.keys():
             for robot_id in [1, 2]:
                 for camera in ["left", "right"]:
                     # create folder for this video, this robot, and this camera
@@ -356,14 +539,30 @@ class DetectedRobotImages(Dataset):
                     )
                     os.makedirs(this_folder)
 
-                    full_img_paths, labels = self.trajectory_robot_data[trajectory_id][
+                    img_paths, labels = self.trajectory_robot_data[trajectory_id][
                         robot_id
                     ][camera]
 
-                    # keep just the image filename instead of the full path
-                    img_filenames = [
-                        str(path).split("/")[-1] for path in full_img_paths
-                    ]
+                    # only there is only one image per data point
+                    if not self.image_sequences:
+                        # keep just the image filename instead of the full path
+                        img_filenames = [str(path).split("/")[-1] for path in img_paths]
+
+                    # else use only the image of interest for the label and
+                    # flatten the list to save all the images of the sequences
+                    else:
+                        img_sequence_mapping = {}
+                        for paths in img_paths:
+                            stripped = [
+                                str(path).split("/")[-1] for path in paths
+                            ]  # keep just the image filename instead of the full path
+                            img_sequence_mapping[stripped[0]] = stripped
+
+                        with open(this_folder / "img_sequence_mapping.json", "w") as f:
+                            json.dump(img_sequence_mapping, f)
+
+                        img_filenames = img_sequence_mapping.keys()
+                        img_paths = [img for l in img_paths for img in l]
 
                     # save dictionary with image-label mapping
                     img_label_mapping = dict(zip(img_filenames, labels))
@@ -372,61 +571,23 @@ class DetectedRobotImages(Dataset):
                         json.dump(img_label_mapping, f)
 
                     # save each image in this directory
-                    for img_path in self.trajectory_robot_data[trajectory_id][robot_id][
-                        camera
-                    ][0]:
+                    for img_path in set(img_paths):
                         shutil.copy(img_path, this_folder)
-
-    def print_action_distribution(self):
-        occurrences_all = Counter(self.labels)
-
-        for name in sorted(occurrences_all.keys()):
-            print(f"{name:<30} {occurrences_all[name]}")
-        print("-------------------------------------")
-        print(f"{'total':<30} {len(self)}")
-
-    def get_action_distribution_per_trajectory(self, plot: bool):
-        # TODO: doesn't work right now
-        data = {}
-
-        for trajectory_id in range(10):
-            for robot_id in [1, 2]:
-                l = self.trajectory_robot_data[trajectory_id][robot_id]["left"][1]
-                r = self.trajectory_robot_data[trajectory_id][robot_id]["right"][1]
-                occurrences = Counter(l + r)
-
-                this_traj = f"Trajectory {trajectory_id}, Robot {robot_id}"
-                data[this_traj] = [
-                    occurrences[label] for label in self.label_idx_mapping.keys()
-                ]
-
-        if plot:
-            df = pd.DataFrame(data)
-            df.plot.bar(
-                x=self.label_idx_mapping,
-                subplots=True,
-                layout=(10, 2),
-                sharey=True,
-                legend=False,
-                color="blue",
-            )
-            plt.tight_layout()
-            plt.show()
-            plt.savefig("distribution.png")
-
-        return data
 
 
 if __name__ == "__main__":
     path_to_dataset_root = (
-        Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_2"
+        Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_3"
     )
     dataset = DetectedRobotImages(
         downsample_img_by=8,
         downsample_sequence=True,
-        imgs_per_sec=2,
-        split="all",
+        imgs_per_sec=1,
+        image_sequences=False,
+        imgs_per_sequence=5,
+        time_spacing=1.0,
         original_dataset_root=path_to_dataset_root,
+        video_idxs=[0, 1, 2, 3, 4, 5],
     )
 
-    dataset.print_action_distribution()
+    print(dataset[0][0].shape)

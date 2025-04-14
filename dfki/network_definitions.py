@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torchvision.models.efficientnet import efficientnet_b0
 
 
 class RobotNet(nn.Module):
@@ -27,7 +28,7 @@ class RobotNet(nn.Module):
             nn.Linear(self.size, 20),
             nn.ReLU(),
             nn.Linear(20, num_classes),
-            nn.Softmax() if softmax else nn.Sigmoid(),
+            # nn.Softmax() if softmax else nn.Sigmoid(),
         )
 
     def forward(self, x):
@@ -35,6 +36,47 @@ class RobotNet(nn.Module):
         x = x.view(-1, self.size)
         x = self.classifier(x)
         return x
+
+
+class PretrainedLinearOld(nn.Module):
+    def __init__(self, num_classes):
+        super(PretrainedLinearOld, self).__init__()
+        self.pretrained = efficientnet_b0(weights="IMAGENET1K_V1")
+
+        self.linear = nn.Sequential(
+            nn.Linear(1000, num_classes),
+            nn.Softmax(),
+        )
+
+    def forward(self, x):
+        proj = self.pretrained(x)
+        final = self.linear(proj)
+        return final
+
+
+class PretrainedLinear(nn.Module):
+    def __init__(self, num_classes):
+        super(PretrainedLinear, self).__init__()
+
+        # Load pretrained EfficientNet-B0 and remove classification head
+        base_model = efficientnet_b0(weights="IMAGENET1K_V1")
+        self.feature_extractor = base_model.features  # CNN backbone
+        self.global_avg_pool = nn.AdaptiveAvgPool2d(
+            (1, 1)
+        )  # Convert to (B, 1280, 1, 1)
+
+        # Classifier head
+        self.classifier = nn.Sequential(
+            nn.Linear(1280, num_classes),
+            nn.Softmax(),
+        )
+
+    def forward(self, x):  # x: (B, 3, H, W)
+        features = self.feature_extractor(x)  # -> (B, 1280, H', W')
+        avg_pool = self.global_avg_pool(features)  # -> (B, 1280, 1, 1)
+        flatten = avg_pool.view(avg_pool.size(0), -1)  # -> (B, 1280)
+        outputs = self.classifier(flatten)  # -> (B, num_classes)
+        return outputs
 
 
 class CNN3D(nn.Module):
@@ -78,4 +120,51 @@ class CNN3D(nn.Module):
         x = torch.flatten(x, start_dim=1)  # Shape: (batch_size, 64)
 
         x = self.classifier(x)  # Shape: (batch_size, num_classes)
-        return x 
+        return x
+
+
+class CNNLSTM(nn.Module):
+    def __init__(self, num_classes):
+        super(CNNLSTM, self).__init__()
+        base_model = efficientnet_b0(weights="IMAGENET1K_V1")
+        self.pretrained_cnn = nn.Sequential(
+            *list(base_model.children())[:-2]
+        )  # Remove classification head
+
+        # Get feature size from EfficientNet output
+        dummy_input = torch.randn(1, 3, 90, 160)
+        feature_size = self.pretrained_cnn(dummy_input).view(1, -1).size(1)
+
+        self.lstm = nn.LSTM(
+            input_size=feature_size,
+            hidden_size=256,
+            num_layers=1,
+            batch_first=True,
+        )
+
+        self.linear = nn.Sequential(
+            nn.Linear(256, num_classes),
+            nn.Softmax(),
+        )
+
+    def forward(self, x):
+        batch_size, _, seq_len, _, _ = x.shape  # (B, 5, 3, 224, 224)
+
+        # Extract features for each image in the sequence
+        cnn_features = []
+        for t in range(seq_len):
+            features = self.pretrained_cnn(
+                x[:, :, t, :, :]
+            )  # Pass each image through CNN
+            features = features.view(batch_size, -1)  # Flatten
+            cnn_features.append(features)
+
+        cnn_features = torch.stack(cnn_features, dim=1)  # Shape: (B, 5, feature_size)
+
+        # LSTM
+        lstm_out, _ = self.lstm(cnn_features)  # Shape: (B, 5, hidden_size)
+        last_output = lstm_out[:, -1, :]  # Take the output at the last timestep
+
+        # Classification
+        logits = self.linear(last_output)  # Shape: (B, num_classes)
+        return logits

@@ -1,9 +1,11 @@
+import os
 import torch
 import numpy as np
 import torchmetrics
 from pathlib import Path
 from typing import Optional
 from torch import nn, optim
+from datetime import datetime
 from torch.utils.data import DataLoader
 from rich.progress import (
     BarColumn,
@@ -15,8 +17,8 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from dfki.data_v2 import DetectedRobotImages
-from dfki.network_definitions import CNN3D, RobotNet
+from dfki.data import DetectedRobotImages
+from dfki.network_definitions import CNN3D, CNNLSTM, PretrainedLinear, RobotNet
 
 
 def run_dataloader(
@@ -125,6 +127,38 @@ def cross_validation(
     return test_videos, splits
 
 
+import copy
+
+
+class EarlyStopping:
+    def __init__(self, patience=5, min_delta=0.0, save_path=None):
+        """
+        Args:
+            patience (int): How many epochs to wait without improvement.
+            min_delta (float): Minimum improvement in F1 to reset patience.
+            save_path (str): If set, best model is saved to this path.
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.best_score = -float("inf")  # higher is better for F1
+        self.counter = 0
+        self.early_stop = False
+        self.best_model_wts = None
+        self.save_path = save_path
+
+    def __call__(self, val_f1, model):
+        if val_f1 > self.best_score + self.min_delta:
+            self.best_score = val_f1
+            self.counter = 0
+            self.best_model_wts = copy.deepcopy(model.state_dict())
+            if self.save_path:
+                torch.save(self.best_model_wts, self.save_path)
+        else:
+            self.counter += 1
+            if self.counter >= self.patience:
+                self.early_stop = True
+
+
 if __name__ == "__main__":
 
     # declare datasets variables
@@ -144,23 +178,15 @@ if __name__ == "__main__":
         seed=42,
     )
 
-    # # create the test dataset
-    # test_dataset = DetectedRobotImages(
-    #     downsample_img_by,
-    #     downsample_sequence,
-    #     imgs_per_sec,
-    #     image_sequences,
-    #     imgs_per_sequence,
-    #     time_spacing,
-    #     test_videos,
-    #     dataset_root,
-    # )
-
-    final_metrics = {"train": [], "val": []}
+    results_per_split = {}
+    now = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
+    model_save_dir = Path(__file__).parent / f"saved_models/{now}"
+    os.makedirs(model_save_dir)
 
     # iterate through all train/validation splits
     for i, inner in enumerate(splits):
-        
+        print(f"Split {i+1}/{len(splits)}")
+
         # create train/val datasets
         train_dataset, val_dataset = [
             DetectedRobotImages(
@@ -177,12 +203,12 @@ if __name__ == "__main__":
         ]
 
         # create CNN
-        net = RobotNet(num_classes=len(train_dataset[0][1]), softmax=True)
+        net = PretrainedLinear(num_classes=len(train_dataset[0][1]))
 
         # define training config
         lr = 1e-3
         batch_size = 32
-        num_epochs = 2
+        num_epochs = 20
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         optimizer = optim.Adam(net.parameters(), lr=lr)
         loss_function = nn.NLLLoss()
@@ -209,6 +235,14 @@ if __name__ == "__main__":
             ).to(device),
         }
 
+        # instantiate early stopping class
+        # this will track validation macro-F1 and save the best-performing model
+        early_stopper = EarlyStopping(
+            patience=5,
+            min_delta=0.01,
+            save_path=model_save_dir / f"{net.__class__.__name__}_split_{i+1}of{len(splits)}.pt",
+        )
+
         net.to(device)
         for epoch in range(num_epochs):
             net, train_metrics = run_dataloader(
@@ -234,32 +268,26 @@ if __name__ == "__main__":
                 train=False,
                 device=device,
             )
-            
-            if epoch == num_epochs - 1:
-               final_metrics["train"].append(train_metrics) 
-               final_metrics["val"].append(val_metrics) 
+
+            early_stopper(val_metrics["f1-macro"], net)
+
+            if early_stopper.early_stop or epoch + 1 == num_epochs:
+                results_per_split[i + 1] = {
+                    "model": net,
+                    "train_metrics": train_metrics,
+                    "val_metrics": val_metrics,
+                }
+
+    for fold, data in results_per_split.items():
+        print(f"Fold {fold}:")
+        train_metrics = data["train"]
+        val_metrics = data["val"]
         
-    for i in range(len(splits)):
-        print(f"Split {i}/{len(splits)} - train: {final_metrics['train'][i]}, val: {final_metrics['val'][i]}")
-
-    print(f"Average - train: {sum(final_metrics['train']) / len(final_metrics['train'])}, val: {sum(final_metrics['val']) / len(final_metrics['val'])}")
-
-        # for i in range(0, 100, 10):
-        #     tensor = train_dataset[i][0]
-        #     import numpy as np
-        #     import matplotlib.pyplot as plt
-        #     # Permute to (5, 3, 90, 160) to iterate over images
-        #     tensor = tensor.permute(1, 0, 2, 3)  # Now (5, 3, 90, 160)
-
-        #     # Concatenate along width (dim=3)
-        #     concatenated_image = torch.cat([tensor[i] for i in range(5)], dim=2)  # (3, 90, 800)
-
-        #     # Convert to NumPy for visualization
-        #     image_np = concatenated_image.permute(1, 2, 0).cpu().numpy()  # (90, 800, 3)
-
-        #     plt.imsave(f"test_images/output_{i}.png", np.clip(image_np, 0, 1))
-
-        #     # # Display the image
-        #     # plt.imshow(np.clip(image_np, 0, 1))  # Clip to valid range if needed
-        #     # plt.axis("off")
-        #     # plt.show()
+        print("  Train:", end=" ")
+        print(" | ".join(f"{k}: {v:.3f}" for k, v in train_metrics.items()))
+        
+        print("  Val:  ", end=" ")
+        print(" | ".join(f"{k}: {v:.3f}" for k, v in val_metrics.items()))
+        
+        print()
+    
