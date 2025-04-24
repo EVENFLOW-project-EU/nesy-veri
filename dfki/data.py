@@ -350,6 +350,15 @@ def plot_trajectories(
                 f"Trajectory {traj_id}, Robot {robot_id}"
             )
 
+            # Force consistent y-axis
+            axes[robot_id-1][traj_id].set_yticks(range(len(custom_order)))
+            axes[robot_id-1][traj_id].set_yticklabels(custom_order)
+
+            # Optional: set y-axis limits to cover all categories
+            axes[robot_id-1][traj_id].set_ylim(-0.5, len(custom_order) - 0.5)
+            axes[robot_id-1][traj_id].invert_yaxis()
+
+
     plt.tight_layout(pad=2.0)
     plt.savefig(f"dfki/trajectory_figures/{filename}.pdf", dpi=300, transparent=True)
 

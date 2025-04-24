@@ -203,7 +203,7 @@ if __name__ == "__main__":
         ]
 
         # create CNN
-        net = PretrainedLinear(num_classes=len(train_dataset[0][1]))
+        net = PretrainedLinear(num_classes=len(train_dataset[0][1]), softmax=True)
 
         # define training config
         lr = 1e-3

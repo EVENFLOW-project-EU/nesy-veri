@@ -55,7 +55,7 @@ class PretrainedLinearOld(nn.Module):
 
 
 class PretrainedLinear(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, softmax):
         super(PretrainedLinear, self).__init__()
 
         # Load pretrained EfficientNet-B0 and remove classification head
@@ -68,7 +68,7 @@ class PretrainedLinear(nn.Module):
         # Classifier head
         self.classifier = nn.Sequential(
             nn.Linear(1280, num_classes),
-            nn.Softmax(),
+            nn.Softmax() if softmax else nn.Identity(),
         )
 
     def forward(self, x):  # x: (B, 3, H, W)
