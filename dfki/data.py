@@ -9,7 +9,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 from collections.abc import Iterable
 from torch.utils.data import Dataset
-from torchvision.io import read_image
+from torchvision.io import read_image, video
 from torchvision.transforms import Resize
 
 
@@ -77,7 +77,7 @@ def downsample(l, imgs_per_sec):
     return downsampled
 
 
-def get_labelled_sequences(images_df, data_df, num_imgs, time_spacing):
+def get_labelled_sequences(images_df, data_df, num_imgs, time_spacing, regress):
     image_sequences = []
     goal_labels = []
     min_required_time = (num_imgs - 1) * time_spacing
@@ -99,6 +99,8 @@ def get_labelled_sequences(images_df, data_df, num_imgs, time_spacing):
 
         closest_goal_idx = (data_df["ros_left_stamp"] - img_stamp).abs().idxmin()
         goal_status = data_df.iloc[closest_goal_idx]["goal_status"]
+        if regress:
+            raise NotImplementedError("sequences with mobility labels not implemented yet")
 
         image_sequences.append(image_paths)
         goal_labels.append(goal_status)
@@ -113,11 +115,12 @@ def create_dataset(
     image_sequences: bool,
     imgs_per_sequence: int,
     time_spacing: float,
+    regress: bool,
 ):
     # this will include all of the data structure by trajectory and robot IDs
     trajectory_robot_data = {}
 
-    for traj_id in range(10):
+    for traj_id in range(100):
         # create a new dict for this trajectory
         trajectory_robot_data[traj_id] = {}
 
@@ -129,7 +132,7 @@ def create_dataset(
             # read robot info for this robot and trajectory
             data_df = pd.read_csv(
                 data_path / f"output_robot{robot_id}data/out{traj_id}.csv",
-                usecols=["ros_left_stamp", "goal_status"],  # type: ignore
+                usecols=["ros_left_stamp", "goal_status", "px", "py"],  # type: ignore
             )
 
             data_df["ros_left_stamp"] = data_df["ros_left_stamp"].apply(
@@ -173,17 +176,18 @@ def create_dataset(
 
                 if image_sequences:
                     # get a sequence of images leading up to each image in imaged_df
-                    img_sequences, goal_labels = get_labelled_sequences(
+                    img_sequences, labels = get_labelled_sequences(
                         images_df,
                         data_df,
                         num_imgs=imgs_per_sequence,
                         time_spacing=time_spacing,
+                        regress=regress,
                     )
 
                     # create a new nested dict
                     trajectory_robot_data[traj_id][robot_id][camera] = (
                         img_sequences,
-                        goal_labels,
+                        labels,
                     )
                 else:
                     # for each image, find the row of the original frame with the closest timestamp
@@ -194,10 +198,21 @@ def create_dataset(
                         how="inner",
                     )
 
+                    labels = (
+                        list(
+                            zip(
+                                list(image_label_pairs["px"]),
+                                list(image_label_pairs["py"]),
+                            )
+                        )
+                        if regress
+                        else list(image_label_pairs["goal_status"])
+                    )
+
                     # create a new nested dict
                     trajectory_robot_data[traj_id][robot_id][camera] = (
                         list(image_label_pairs["filename"]),
-                        list(image_label_pairs["goal_status"]),
+                        labels,
                     )
 
     return trajectory_robot_data
@@ -351,13 +366,12 @@ def plot_trajectories(
             )
 
             # Force consistent y-axis
-            axes[robot_id-1][traj_id].set_yticks(range(len(custom_order)))
-            axes[robot_id-1][traj_id].set_yticklabels(custom_order)
+            axes[robot_id - 1][traj_id].set_yticks(range(len(custom_order)))
+            axes[robot_id - 1][traj_id].set_yticklabels(custom_order)
 
             # Optional: set y-axis limits to cover all categories
-            axes[robot_id-1][traj_id].set_ylim(-0.5, len(custom_order) - 0.5)
-            axes[robot_id-1][traj_id].invert_yaxis()
-
+            axes[robot_id - 1][traj_id].set_ylim(-0.5, len(custom_order) - 0.5)
+            axes[robot_id - 1][traj_id].invert_yaxis()
 
     plt.tight_layout(pad=2.0)
     plt.savefig(f"dfki/trajectory_figures/{filename}.pdf", dpi=300, transparent=True)
@@ -395,6 +409,7 @@ class DetectedRobotImages(Dataset):
         image_sequences: bool,
         imgs_per_sequence: int,
         time_spacing: float,
+        regress: bool,
         video_idxs: Iterable[int],
         original_dataset_root: Optional[Path] = None,
     ):
@@ -403,9 +418,10 @@ class DetectedRobotImages(Dataset):
         self.folder_path = (
             Path(__file__).parent.parent
             / "data"
-            / f"dataset_{downsample_img_by}_{downsample_sequence}_{imgs_per_sec}_{image_sequences}_{imgs_per_sequence}_{time_spacing}"
+            / f"dataset_{downsample_img_by}_{downsample_sequence}_{imgs_per_sec}_{image_sequences}_{imgs_per_sequence}_{time_spacing}_{regress}_v{str(original_dataset_root).split('_')[1]}"
         )
         self.image_sequences = image_sequences
+        self.regress = regress
 
         # if the saved dataset exists, just load it
         if os.path.exists(self.folder_path):
@@ -430,6 +446,7 @@ class DetectedRobotImages(Dataset):
                     image_sequences,
                     imgs_per_sequence,
                     time_spacing,
+                    regress,
                 )
 
                 self.save_dataset(self.folder_path)
@@ -477,9 +494,12 @@ class DetectedRobotImages(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, index):
-        # create a one-hot label based on the string label and the label-index mapping
-        one_hot_label = torch.zeros(len(set(self.label_idx_mapping.values())))
-        one_hot_label[self.label_idx_mapping[self.labels[index]]] = 1
+        if self.regress:
+            label = torch.Tensor(self.labels[index])
+        else:
+            # create a one-hot label based on the string label and the label-index mapping
+            label = torch.zeros(len(set(self.label_idx_mapping.values())))
+            label[self.label_idx_mapping[self.labels[index]]] = 1
 
         # if each data sample contains only one image, read that image
         if not self.image_sequences:
@@ -494,7 +514,7 @@ class DetectedRobotImages(Dataset):
                 ]
             ).permute(1, 0, 2, 3)
 
-        return tensor_img, one_hot_label
+        return tensor_img, label
 
     def load_dataset(self):
         self.image_paths = []
@@ -586,7 +606,7 @@ class DetectedRobotImages(Dataset):
 
 if __name__ == "__main__":
     path_to_dataset_root = (
-        Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_3"
+        Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
     )
     dataset = DetectedRobotImages(
         downsample_img_by=8,
@@ -595,8 +615,9 @@ if __name__ == "__main__":
         image_sequences=False,
         imgs_per_sequence=5,
         time_spacing=1.0,
+        regress=True,
         original_dataset_root=path_to_dataset_root,
-        video_idxs=[0, 1, 2, 3, 4, 5],
+        video_idxs=range(100),
     )
 
     print(dataset[0][0].shape)

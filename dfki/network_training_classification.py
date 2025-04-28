@@ -55,6 +55,7 @@ def run_dataloader(
         **{metric: 0 for metric in metrics},  # type: ignore
         loss=0,
     )
+    sequence_metrics = {}
 
     network.train() if train else network.eval()
 
@@ -64,6 +65,8 @@ def run_dataloader(
             outputs = network(inputs)
 
             match loss_function:
+                case nn.MSELoss():
+                    loss = loss_function(outputs, labels)
                 case nn.CrossEntropyLoss():
                     loss = loss_function(outputs, labels)
                 case nn.BCELoss():
@@ -94,13 +97,18 @@ def run_dataloader(
                     for metric_name, metric in metrics.items()
                 }
 
-            progress.update(
-                task_id=epoch_task,
-                advance=1,
-                **sequence_metrics,
-                loss=((idx * progress.tasks[epoch_task].fields["loss"]) + loss.item())
-                / (idx + 1),
-            )
+                progress.update(
+                    task_id=epoch_task,
+                    advance=1,
+                    **sequence_metrics,
+                    loss=(
+                        (idx * progress.tasks[epoch_task].fields["loss"]) + loss.item()
+                    )
+                    / (idx + 1),
+                )
+
+    # add the average loss of the epoch to the metrics to be returned
+    sequence_metrics["loss"] = progress.tasks[epoch_task].fields["loss"]
 
     return network, sequence_metrics
 
@@ -131,24 +139,33 @@ import copy
 
 
 class EarlyStopping:
-    def __init__(self, patience=5, min_delta=0.0, save_path=None):
+    def __init__(self, objective, patience=5, min_delta=0.0, save_path=None):
         """
         Args:
             patience (int): How many epochs to wait without improvement.
-            min_delta (float): Minimum improvement in F1 to reset patience.
+            min_delta (float): Minimum improvement in tracked metric to reset patience.
             save_path (str): If set, best model is saved to this path.
         """
+        assert objective in ["minimize", "maximize"]
+        self.objective = objective
         self.patience = patience
         self.min_delta = min_delta
-        self.best_score = -float("inf")  # higher is better for F1
+        self.best_score = (
+            float("inf") if objective == "minimize" else -float("inf")
+        )  # define starting value depending on the type of tracked metric
         self.counter = 0
         self.early_stop = False
         self.best_model_wts = None
         self.save_path = save_path
 
-    def __call__(self, val_f1, model):
-        if val_f1 > self.best_score + self.min_delta:
-            self.best_score = val_f1
+    def __call__(self, val_metric, model):
+        improvement_condition = (
+            val_metric < self.best_score - self.min_delta
+            if self.objective == "minimize"
+            else val_metric > self.best_score + self.min_delta
+        )
+        if improvement_condition:
+            self.best_score = val_metric
             self.counter = 0
             self.best_model_wts = copy.deepcopy(model.state_dict())
             if self.save_path:
@@ -168,7 +185,10 @@ if __name__ == "__main__":
     image_sequences = False
     imgs_per_sequence = 5
     time_spacing = 1.0
-    dataset_root = Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_3"
+    regress = False
+    dataset_root = (
+        Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+    )
 
     # get train/val/test splits
     test_videos, splits = cross_validation(
@@ -196,6 +216,7 @@ if __name__ == "__main__":
                 image_sequences,
                 imgs_per_sequence,
                 time_spacing,
+                regress,
                 idxs,
                 dataset_root,
             )
@@ -203,7 +224,9 @@ if __name__ == "__main__":
         ]
 
         # create CNN
-        net = PretrainedLinear(num_classes=len(train_dataset[0][1]), softmax=True)
+        net = PretrainedLinear(
+            num_classes=len(train_dataset[0][1]), softmax=not regress
+        )
 
         # define training config
         lr = 1e-3
@@ -211,36 +234,44 @@ if __name__ == "__main__":
         num_epochs = 20
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         optimizer = optim.Adam(net.parameters(), lr=lr)
-        loss_function = nn.NLLLoss()
+        loss_function = nn.MSELoss() if regress else nn.NLLLoss()
 
         # create dataloaders for training and validation
         train_dl = DataLoader(train_dataset, batch_size, shuffle=True)
         val_dl = DataLoader(val_dataset, batch_size, shuffle=True)
 
-        # define training metrics
-        metrics = {
-            "f1-macro": torchmetrics.F1Score(
-                task="multiclass",
-                average="macro",
-                num_classes=len(train_dataset[0][1]),
-            ).to(device),
-            "f1-micro": torchmetrics.F1Score(
-                task="multiclass",
-                average="micro",
-                num_classes=len(train_dataset[0][1]),
-            ).to(device),
-            "accuracy": torchmetrics.Accuracy(
-                task="multiclass",
-                num_classes=len(train_dataset[0][1]),
-            ).to(device),
-        }
+        # define evaluation metrics (both for training and validation)
+        metrics = (
+            {}
+            if regress
+            else {
+                "f1-macro": torchmetrics.F1Score(
+                    task="multiclass",
+                    average="macro",
+                    num_classes=len(train_dataset[0][1]),
+                ).to(device),
+                "f1-micro": torchmetrics.F1Score(
+                    task="multiclass",
+                    average="micro",
+                    num_classes=len(train_dataset[0][1]),
+                ).to(device),
+                "accuracy": torchmetrics.Accuracy(
+                    task="multiclass",
+                    num_classes=len(train_dataset[0][1]),
+                ).to(device),
+            }
+        )
 
         # instantiate early stopping class
-        # this will track validation macro-F1 and save the best-performing model
+        # if we're doing regression we'll track validation loss
+        # if we're doing classification we'll track validation macro-F1
+        # this will monitor that metric and save the best-performing model
         early_stopper = EarlyStopping(
+            objective="minimize",
             patience=5,
             min_delta=0.01,
-            save_path=model_save_dir / f"{net.__class__.__name__}_split_{i+1}of{len(splits)}.pt",
+            save_path=model_save_dir
+            / f"{net.__class__.__name__}_split_{i+1}of{len(splits)}.pt",
         )
 
         net.to(device)
@@ -269,7 +300,10 @@ if __name__ == "__main__":
                 device=device,
             )
 
-            early_stopper(val_metrics["f1-macro"], net)
+            early_stopper(
+                val_metric=val_metrics["loss"] if regress else val_metrics["f1-macro"],
+                model=net,
+            )
 
             if early_stopper.early_stop or epoch + 1 == num_epochs:
                 results_per_split[i + 1] = {
@@ -282,12 +316,11 @@ if __name__ == "__main__":
         print(f"Fold {fold}:")
         train_metrics = data["train"]
         val_metrics = data["val"]
-        
+
         print("  Train:", end=" ")
         print(" | ".join(f"{k}: {v:.3f}" for k, v in train_metrics.items()))
-        
+
         print("  Val:  ", end=" ")
         print(" | ".join(f"{k}: {v:.3f}" for k, v in val_metrics.items()))
-        
+
         print()
-    
