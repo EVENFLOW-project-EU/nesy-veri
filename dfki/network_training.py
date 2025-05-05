@@ -185,14 +185,14 @@ if __name__ == "__main__":
     image_sequences = False
     imgs_per_sequence = 5
     time_spacing = 1.0
-    regress = False
+    regress = True
     dataset_root = (
         Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
     )
 
     # get train/val/test splits
     test_videos, splits = cross_validation(
-        video_indices=list(range(10)),
+        video_indices=list(range(100)),
         num_test_vids=0,
         num_folds=5,
         seed=42,
@@ -231,7 +231,7 @@ if __name__ == "__main__":
         # define training config
         lr = 1e-3
         batch_size = 32
-        num_epochs = 20
+        num_epochs = 100
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         optimizer = optim.Adam(net.parameters(), lr=lr)
         loss_function = nn.MSELoss() if regress else nn.NLLLoss()
@@ -275,7 +275,7 @@ if __name__ == "__main__":
         )
 
         net.to(device)
-        for epoch in range(num_epochs):
+        for epoch_num, epoch in enumerate(range(num_epochs)):
             net, train_metrics = run_dataloader(
                 net,
                 train_dl,
@@ -307,15 +307,18 @@ if __name__ == "__main__":
 
             if early_stopper.early_stop or epoch + 1 == num_epochs:
                 results_per_split[i + 1] = {
-                    "model": net,
                     "train_metrics": train_metrics,
                     "val_metrics": val_metrics,
+                    "stopped_early": True if early_stopper.early_stop else False,
+                    "stop_epoch": epoch_num if early_stopper.early_stop else None,
                 }
+                continue
 
+    print(results_per_split)
     for fold, data in results_per_split.items():
         print(f"Fold {fold}:")
-        train_metrics = data["train"]
-        val_metrics = data["val"]
+        train_metrics = data["train_metrics"]
+        val_metrics = data["val_metrics"]
 
         print("  Train:", end=" ")
         print(" | ".join(f"{k}: {v:.3f}" for k, v in train_metrics.items()))
