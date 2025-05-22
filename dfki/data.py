@@ -143,7 +143,7 @@ def create_dataset(
             data_df["goal_status"] = data_df["goal_status"].apply(
                 lambda x: (
                     "other"
-                    if x in ["(unknown)", "initial position", "stopped (unknown)"]
+                    if x in ["Spawning on floor", "(unknown)", "initial position", "stopped (unknown)"]
                     else x
                 )
             )

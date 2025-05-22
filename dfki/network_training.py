@@ -1,4 +1,5 @@
 import os
+import json
 import torch
 import numpy as np
 import torchmetrics
@@ -199,9 +200,19 @@ if __name__ == "__main__":
     )
 
     results_per_split = {}
-    now = datetime.now().strftime("%d-%m-%Y_%H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     model_save_dir = Path(__file__).parent / f"saved_models/{now}"
     os.makedirs(model_save_dir)
+
+    # define training config
+    lr = 1e-3
+    batch_size = 32
+    num_epochs = 150
+    results_per_split["config"] = {
+        "num_epochs": num_epochs,
+        "batch_size": batch_size,
+        "learning_rate": lr,
+    }
 
     # iterate through all train/validation splits
     for i, inner in enumerate(splits):
@@ -225,16 +236,15 @@ if __name__ == "__main__":
 
         # create CNN
         net = PretrainedLinear(
-            num_classes=len(train_dataset[0][1]), softmax=not regress
+            num_classes=len(train_dataset[0][1]),
+            softmax=not regress,
         )
-
+        
         # define training config
-        lr = 1e-3
-        batch_size = 32
-        num_epochs = 100
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         optimizer = optim.Adam(net.parameters(), lr=lr)
         loss_function = nn.MSELoss() if regress else nn.NLLLoss()
+
 
         # create dataloaders for training and validation
         train_dl = DataLoader(train_dataset, batch_size, shuffle=True)
@@ -242,7 +252,9 @@ if __name__ == "__main__":
 
         # define evaluation metrics (both for training and validation)
         metrics = (
-            {}
+            {
+                "mape": torchmetrics.MeanAbsolutePercentageError().to(device),
+            }
             if regress
             else {
                 "f1-macro": torchmetrics.F1Score(
@@ -301,7 +313,7 @@ if __name__ == "__main__":
             )
 
             early_stopper(
-                val_metric=val_metrics["loss"] if regress else val_metrics["f1-macro"],
+                val_metric=val_metrics["mape"] if regress else val_metrics["f1-macro"],
                 model=net,
             )
 
@@ -315,15 +327,19 @@ if __name__ == "__main__":
                 continue
 
     print(results_per_split)
+    with open(f"{model_save_dir}/results_per_split.json", "w") as f:
+        json.dump(results_per_split, f, indent=4)
+
     for fold, data in results_per_split.items():
-        print(f"Fold {fold}:")
-        train_metrics = data["train_metrics"]
-        val_metrics = data["val_metrics"]
+        if fold != "config":
+            print(f"Fold {fold}:")
+            train_metrics = data["train_metrics"]
+            val_metrics = data["val_metrics"]
 
-        print("  Train:", end=" ")
-        print(" | ".join(f"{k}: {v:.3f}" for k, v in train_metrics.items()))
+            print("  Train:", end=" ")
+            print(" | ".join(f"{k}: {v:.3f}" for k, v in train_metrics.items()))
 
-        print("  Val:  ", end=" ")
-        print(" | ".join(f"{k}: {v:.3f}" for k, v in val_metrics.items()))
+            print("  Val:  ", end=" ")
+            print(" | ".join(f"{k}: {v:.3f}" for k, v in val_metrics.items()))
 
-        print()
+            print()
