@@ -28,7 +28,7 @@ class RobotNet(nn.Module):
             nn.Linear(self.size, 20),
             nn.ReLU(),
             nn.Linear(20, num_classes),
-            # nn.Softmax() if softmax else nn.Sigmoid(),
+            nn.Softmax() if softmax else nn.Identity(),
         )
 
     def forward(self, x):
@@ -36,22 +36,6 @@ class RobotNet(nn.Module):
         x = x.view(-1, self.size)
         x = self.classifier(x)
         return x
-
-
-class PretrainedLinearOld(nn.Module):
-    def __init__(self, num_classes):
-        super(PretrainedLinearOld, self).__init__()
-        self.pretrained = efficientnet_b0(weights="IMAGENET1K_V1")
-
-        self.linear = nn.Sequential(
-            nn.Linear(1000, num_classes),
-            nn.Softmax(),
-        )
-
-    def forward(self, x):
-        proj = self.pretrained(x)
-        final = self.linear(proj)
-        return final
 
 
 class PretrainedLinear(nn.Module):

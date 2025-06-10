@@ -177,85 +177,51 @@ class EarlyStopping:
                 self.early_stop = True
 
 
-if __name__ == "__main__":
+def train(net: nn.Module, data_config: dict, train_config: dict, cv_splits: list[dict]):
 
-    # declare datasets variables
-    downsample_img_by = 8
-    downsample_sequence = True
-    imgs_per_sec = 1
-    image_sequences = False
-    imgs_per_sequence = 5
-    time_spacing = 1.0
-    regress = True
-    dataset_root = (
-        Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
-    )
-
-    # get train/val/test splits
-    test_videos, splits = cross_validation(
-        video_indices=list(range(100)),
-        num_test_vids=0,
-        num_folds=5,
-        seed=42,
-    )
-
-    results_per_split = {}
     now = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
     model_save_dir = Path(__file__).parent / f"saved_models/{now}"
     os.makedirs(model_save_dir)
 
-    # define training config
-    lr = 1e-3
-    batch_size = 32
-    num_epochs = 150
-    results_per_split["config"] = {
-        "num_epochs": num_epochs,
-        "batch_size": batch_size,
-        "learning_rate": lr,
-    }
+    results_per_split = {}
+    results_per_split["train_config"] = train_config
+    results_per_split["data_config"] = data_config
 
     # iterate through all train/validation splits
-    for i, inner in enumerate(splits):
-        print(f"Split {i+1}/{len(splits)}")
+    for i, inner in enumerate(cv_splits):
+        print(f"Split {i+1}/{len(cv_splits)}")
 
         # create train/val datasets
         train_dataset, val_dataset = [
             DetectedRobotImages(
-                downsample_img_by,
-                downsample_sequence,
-                imgs_per_sec,
-                image_sequences,
-                imgs_per_sequence,
-                time_spacing,
-                regress,
+                data_config["downsample_img_by"],
+                data_config["downsample_sequence"],
+                data_config["imgs_per_sec"],
+                data_config["image_sequences"],
+                data_config["imgs_per_sequence"],
+                data_config["time_spacing"],
+                data_config["regress"],
                 idxs,
-                dataset_root,
+                data_config["dataset_root"],
             )
             for idxs in [inner["train"], inner["val"]]
         ]
 
-        # create CNN
-        net = PretrainedLinear(
-            num_classes=len(train_dataset[0][1]),
-            softmax=not regress,
-        )
-        
         # define training config
         device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
-        optimizer = optim.Adam(net.parameters(), lr=lr)
-        loss_function = nn.MSELoss() if regress else nn.NLLLoss()
-
+        optimizer = optim.Adam(net.parameters(), lr=train_config["learning_rate"])
+        loss_function = nn.MSELoss() if data_config["regress"] else nn.NLLLoss()
 
         # create dataloaders for training and validation
-        train_dl = DataLoader(train_dataset, batch_size, shuffle=True)
-        val_dl = DataLoader(val_dataset, batch_size, shuffle=True)
+        train_dl = DataLoader(train_dataset, train_config["batch_size"], shuffle=True)
+        val_dl = DataLoader(val_dataset, train_config["batch_size"], shuffle=True)
 
         # define evaluation metrics (both for training and validation)
         metrics = (
             {
                 "mape": torchmetrics.MeanAbsolutePercentageError().to(device),
             }
-            if regress
+            if data_config["regress"]
             else {
                 "f1-macro": torchmetrics.F1Score(
                     task="multiclass",
@@ -279,20 +245,20 @@ if __name__ == "__main__":
         # if we're doing classification we'll track validation macro-F1
         # this will monitor that metric and save the best-performing model
         early_stopper = EarlyStopping(
-            objective="minimize" if regress else "maximize",
+            objective="minimize" if data_config["regress"] else "maximize",
             patience=5,
             min_delta=0.01,
             save_path=model_save_dir
-            / f"{net.__class__.__name__}_split_{i+1}of{len(splits)}.pt",
+            / f"{net.__class__.__name__}_split_{i+1}of{len(cv_splits)}.pt",
         )
 
         net.to(device)
-        for epoch_num, epoch in enumerate(range(num_epochs)):
+        for epoch_num, epoch in enumerate(range(train_config["num_epochs"])):
             net, train_metrics = run_dataloader(
                 net,
                 train_dl,
                 epoch,
-                num_epochs,
+                train_config["num_epochs"],
                 optimizer,
                 loss_function,
                 metrics,
@@ -304,7 +270,7 @@ if __name__ == "__main__":
                 net,
                 val_dl,
                 epoch,
-                num_epochs,
+                train_config["num_epochs"],
                 optimizer,
                 loss_function,
                 metrics,
@@ -313,11 +279,15 @@ if __name__ == "__main__":
             )
 
             early_stopper(
-                val_metric=val_metrics["mape"] if regress else val_metrics["f1-macro"],
+                val_metric=(
+                    val_metrics["mape"]
+                    if data_config["regress"]
+                    else val_metrics["f1-macro"]
+                ),
                 model=net,
             )
 
-            if early_stopper.early_stop or epoch + 1 == num_epochs:
+            if early_stopper.early_stop or epoch + 1 == train_config["num_epochs"]:
                 results_per_split[i + 1] = {
                     "train_metrics": train_metrics,
                     "val_metrics": val_metrics,
@@ -343,3 +313,47 @@ if __name__ == "__main__":
             print(" | ".join(f"{k}: {v:.3f}" for k, v in val_metrics.items()))
 
             print()
+
+
+if __name__ == "__main__":
+
+    # declare datasets variables
+    data_config = {
+        "downsample_img_by": 8,
+        "downsample_sequence": True,
+        "imgs_per_sec": 1,
+        "image_sequences": False,
+        "imgs_per_sequence": 5,
+        "time_spacing": 1.0,
+        "regress": True,
+        "dataset_root": (
+            Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+        ),
+    }
+
+    # get train/val/test splits
+    test_videos, cv_splits = cross_validation(
+        video_indices=list(range(100)),
+        num_test_vids=10,
+        num_folds=5,
+        seed=42,
+    )
+
+    # define training config
+    train_config = {
+        "num_epochs": 150,
+        "batch_size": 32,
+        "learning_rate": 1e-3,
+    }
+
+    # create CNN
+    # net = PretrainedLinear(
+    #     num_classes=2 if data_config["regress"] else 10,
+    #     softmax=not data_config["regress"],
+    # )
+    net = RobotNet(
+        num_classes=2 if data_config["regress"] else 10,
+        softmax=not data_config["regress"],
+    )
+
+    train(net, data_config, train_config, cv_splits)
