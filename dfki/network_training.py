@@ -279,7 +279,7 @@ if __name__ == "__main__":
         # if we're doing classification we'll track validation macro-F1
         # this will monitor that metric and save the best-performing model
         early_stopper = EarlyStopping(
-            objective="minimize",
+            objective="minimize" if regress else "maximize",
             patience=5,
             min_delta=0.01,
             save_path=model_save_dir
@@ -321,10 +321,10 @@ if __name__ == "__main__":
                 results_per_split[i + 1] = {
                     "train_metrics": train_metrics,
                     "val_metrics": val_metrics,
-                    "stopped_early": True if early_stopper.early_stop else False,
+                    "stopped_early": early_stopper.early_stop,
                     "stop_epoch": epoch_num if early_stopper.early_stop else None,
                 }
-                continue
+                break
 
     print(results_per_split)
     with open(f"{model_save_dir}/results_per_split.json", "w") as f:
