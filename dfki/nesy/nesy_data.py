@@ -12,7 +12,7 @@ def create_nesy_inference_dataset(
 
     for traj_id in test_video_idxs:
         # create a new dict for this trajectory
-        trajectory_robot_data[traj_id] = {}
+        trajectory_robot_data[int(traj_id)] = {}
 
         for robot_id in [1, 2]:
 

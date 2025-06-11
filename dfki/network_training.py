@@ -1,5 +1,6 @@
 import os
 import json
+import copy
 import torch
 import numpy as np
 import torchmetrics
@@ -121,7 +122,7 @@ def cross_validation(
     if seed is not None:
         np.random.seed(seed)
 
-    test_videos = np.random.choice(video_indices, num_test_vids)
+    test_videos = np.random.choice(video_indices, num_test_vids, replace=False)
 
     remaining_videos = np.setdiff1d(video_indices, test_videos)
     np.random.shuffle(remaining_videos)
@@ -135,8 +136,6 @@ def cross_validation(
 
     return test_videos, splits
 
-
-import copy
 
 
 class EarlyStopping:
