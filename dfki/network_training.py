@@ -2,6 +2,7 @@ import os
 import json
 import copy
 import torch
+import inspect
 import numpy as np
 import torchmetrics
 from pathlib import Path
@@ -184,7 +185,8 @@ def train(net: nn.Module, data_config: dict, train_config: dict, cv_splits: list
 
     results_per_split = {}
     results_per_split["train_config"] = train_config
-    results_per_split["data_config"] = data_config
+    results_per_split["data_config"] = data_config.copy()
+    results_per_split["data_config"]["dataset_root"] = str(results_per_split["data_config"]["dataset_root"])
 
     # iterate through all train/validation splits
     for i, inner in enumerate(cv_splits):
@@ -300,7 +302,7 @@ def train(net: nn.Module, data_config: dict, train_config: dict, cv_splits: list
         json.dump(results_per_split, f, indent=4)
 
     for fold, data in results_per_split.items():
-        if fold != "config":
+        if fold not in ["train_config", "data_config"]:
             print(f"Fold {fold}:")
             train_metrics = data["train_metrics"]
             val_metrics = data["val_metrics"]
@@ -338,15 +340,9 @@ if __name__ == "__main__":
         seed=42,
     )
 
-    # define training config
-    train_config = {
-        "num_epochs": 150,
-        "batch_size": 32,
-        "learning_rate": 1e-3,
-    }
-
     # create CNN
     # net = PretrainedLinear(
+    #     pretrained=False, 
     #     num_classes=2 if data_config["regress"] else 10,
     #     softmax=not data_config["regress"],
     # )
@@ -354,5 +350,31 @@ if __name__ == "__main__":
         num_classes=2 if data_config["regress"] else 10,
         softmax=not data_config["regress"],
     )
+    total_params = sum(p.numel() for p in net.parameters())
+    print(f"Number of parameters: {total_params}")
+
+    cls = net.__class__
+    sig = inspect.signature(cls.__init__)
+    
+    arg_names = list(sig.parameters.keys())[1:]  # skip 'self'
+    init_args = {}
+    for name in arg_names:
+        if hasattr(net, name):
+            init_args[name] = getattr(net, name)
+        else:
+            init_args[name] = None  # or skip it, depending on your preference
+
+    model_info = {
+        'model_name': cls.__name__,
+        'args': init_args
+    }
+
+    # define training config
+    train_config = {
+        "num_epochs": 100,
+        "batch_size": 32,
+        "learning_rate": 1e-3,
+        "model_info": model_info,
+    }
 
     train(net, data_config, train_config, cv_splits)

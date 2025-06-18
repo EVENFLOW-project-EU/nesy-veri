@@ -8,18 +8,26 @@ class RobotNet(nn.Module):
     def __init__(self, num_classes: int, softmax: bool):
         super(RobotNet, self).__init__()
 
-        self.size = 8 * 3 * 7
+        self.size = 16 * 2 * 6
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 8, 10),
+            nn.Conv2d(3, 16, 10),
+            nn.ReLU(True),
+            nn.Conv2d(16, 32, 5),
+            nn.ReLU(True),
+            nn.Conv2d(32, 64, 3),
+            nn.ReLU(True),
+            nn.Conv2d(64, 128, 3),
             nn.MaxPool2d(2, 2),
             nn.ReLU(True),
-            nn.Conv2d(8, 16, 5),
+            nn.Conv2d(128, 256, 3),
             nn.MaxPool2d(2, 2),
             nn.ReLU(True),
-            nn.Conv2d(16, 16, 3),
+            nn.Conv2d(256, 256, 3),
+            nn.ReLU(True),
+            nn.Conv2d(256, 64, 3),
             nn.MaxPool2d(2, 2),
             nn.ReLU(True),
-            nn.Conv2d(16, 8, 3),
+            nn.Conv2d(64, 16, 3),
             nn.MaxPool2d(2, 2),
             nn.ReLU(True),
         )
@@ -39,11 +47,14 @@ class RobotNet(nn.Module):
 
 
 class PretrainedLinear(nn.Module):
-    def __init__(self, num_classes, softmax):
+    def __init__(self, pretrained: bool, num_classes: int, softmax: bool):
         super(PretrainedLinear, self).__init__()
+        self.pretrained = pretrained
+        self.num_classes = num_classes
+        self.softmax = softmax
 
         # Load pretrained EfficientNet-B0 and remove classification head
-        base_model = efficientnet_b0(weights="IMAGENET1K_V1")
+        base_model = efficientnet_b0(weights="IMAGENET1K_V1" if pretrained else None)
         self.feature_extractor = base_model.features  # CNN backbone
         self.global_avg_pool = nn.AdaptiveAvgPool2d(
             (1, 1)
