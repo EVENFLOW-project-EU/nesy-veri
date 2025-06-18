@@ -2,4 +2,8 @@ __pycache__
 data
 old*
 trajectory_figures
-saved_models/
+
+/dfki/saved_models/*
+!/dfki/saved_models/2025-06-17_14:32:44/
+
+bucketize.py
