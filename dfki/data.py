@@ -9,7 +9,7 @@ from typing import Optional
 import matplotlib.pyplot as plt
 from collections.abc import Iterable
 from torch.utils.data import Dataset
-from torchvision.io import read_image, video
+from torchvision.io import read_image
 from torchvision.transforms import Resize
 
 
@@ -100,7 +100,9 @@ def get_labelled_sequences(images_df, data_df, num_imgs, time_spacing, regress):
         closest_goal_idx = (data_df["ros_left_stamp"] - img_stamp).abs().idxmin()
         goal_status = data_df.iloc[closest_goal_idx]["goal_status"]
         if regress:
-            raise NotImplementedError("sequences with mobility labels not implemented yet")
+            raise NotImplementedError(
+                "sequences with mobility labels not implemented yet"
+            )
 
         image_sequences.append(image_paths)
         goal_labels.append(goal_status)
@@ -143,7 +145,13 @@ def create_dataset(
             data_df["goal_status"] = data_df["goal_status"].apply(
                 lambda x: (
                     "other"
-                    if x in ["Spawning on floor", "(unknown)", "initial position", "stopped (unknown)"]
+                    if x
+                    in [
+                        "Spawning on floor",
+                        "(unknown)",
+                        "initial position",
+                        "stopped (unknown)",
+                    ]
                     else x
                 )
             )
@@ -191,11 +199,17 @@ def create_dataset(
                     )
                 else:
                     # for each image, find the row of the original frame with the closest timestamp
-                    image_label_pairs = pd.merge(
-                        images_df,
-                        data_df,
-                        on="ros_left_stamp",
-                        how="inner",
+                    # image_label_pairs = pd.merge(
+                    #     images_df,
+                    #     data_df,
+                    #     on="ros_left_stamp",
+                    #     how="inner",
+                    # )
+                    first_data = data_df.groupby(
+                        "ros_left_stamp", as_index=False
+                    ).first()
+                    image_label_pairs = images_df.merge(
+                        first_data, on="ros_left_stamp", how="inner"
                     )
 
                     labels = (
@@ -611,7 +625,7 @@ if __name__ == "__main__":
     dataset = DetectedRobotImages(
         downsample_img_by=8,
         downsample_sequence=True,
-        imgs_per_sec=1,
+        imgs_per_sec=3,
         image_sequences=False,
         imgs_per_sequence=5,
         time_spacing=1.0,
