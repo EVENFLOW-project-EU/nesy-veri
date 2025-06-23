@@ -247,7 +247,7 @@ def train(net: nn.Module, data_config: dict, train_config: dict, cv_splits: list
         # this will monitor that metric and save the best-performing model
         early_stopper = EarlyStopping(
             objective="minimize" if data_config["regress"] else "maximize",
-            patience=5,
+            patience=10,
             min_delta=0.01,
             save_path=model_save_dir
             / f"{net.__class__.__name__}_split_{i+1}of{len(cv_splits)}.pt",
@@ -322,7 +322,7 @@ if __name__ == "__main__":
     data_config = {
         "downsample_img_by": 8,
         "downsample_sequence": True,
-        "imgs_per_sec": 1,
+        "imgs_per_sec": 3,
         "image_sequences": False,
         "imgs_per_sequence": 5,
         "time_spacing": 1.0,

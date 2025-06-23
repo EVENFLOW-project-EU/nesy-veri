@@ -1,0 +1,84 @@
+{
+    "train_config": {
+        "num_epochs": 100,
+        "batch_size": 32,
+        "learning_rate": 0.001,
+        "model_info": {
+            "model_name": "RobotNet",
+            "args": {
+                "num_classes": null,
+                "softmax": null
+            }
+        }
+    },
+    "data_config": {
+        "downsample_img_by": 8,
+        "downsample_sequence": true,
+        "imgs_per_sec": 3,
+        "image_sequences": false,
+        "imgs_per_sequence": 5,
+        "time_spacing": 1.0,
+        "regress": true,
+        "dataset_root": "/srv/evenflow-data/DFKI/Dataset_4_100_traj"
+    },
+    "1": {
+        "train_metrics": {
+            "mape": 0.091242053589804,
+            "loss": 0.7692425839423886
+        },
+        "val_metrics": {
+            "mape": 0.11863140728805334,
+            "loss": 1.9121546223759651
+        },
+        "stopped_early": true,
+        "stop_epoch": 33
+    },
+    "2": {
+        "train_metrics": {
+            "mape": 0.07714669263653039,
+            "loss": 0.5786472388202185
+        },
+        "val_metrics": {
+            "mape": 0.11510171954009572,
+            "loss": 1.1199249521708405
+        },
+        "stopped_early": true,
+        "stop_epoch": 12
+    },
+    "3": {
+        "train_metrics": {
+            "mape": 0.06841447403803674,
+            "loss": 0.45560304249903955
+        },
+        "val_metrics": {
+            "mape": 0.1128660493775418,
+            "loss": 0.9853798136585636
+        },
+        "stopped_early": true,
+        "stop_epoch": 10
+    },
+    "4": {
+        "train_metrics": {
+            "mape": 0.06745785825728602,
+            "loss": 0.41904143565660973
+        },
+        "val_metrics": {
+            "mape": 0.08000336314753156,
+            "loss": 0.7195503495403175
+        },
+        "stopped_early": true,
+        "stop_epoch": 10
+    },
+    "5": {
+        "train_metrics": {
+            "mape": 0.06295330779780173,
+            "loss": 0.3759217732622103
+        },
+        "val_metrics": {
+            "mape": 0.08519816086227291,
+            "loss": 0.6588511466355196
+        },
+        "stopped_early": true,
+        "stop_epoch": 10
+    }
+}
