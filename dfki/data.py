@@ -52,7 +52,7 @@ def get_images_df_from_txt(txt_file, image_dir) -> pd.DataFrame:
                 )
                 timestamp = seconds + nanoseconds * 1e-9
 
-                image_files.append(image_dir / image_filename)
+                image_files.append(f"{image_dir}/{image_filename}")
                 image_timestamps.append(timestamp)
 
     images_df = pd.DataFrame(
@@ -110,6 +110,51 @@ def get_labelled_sequences(images_df, data_df, num_imgs, time_spacing, regress):
     return image_sequences, goal_labels
 
 
+def convert_px_py_to_class(px, py):
+    """
+    Converts pixel coordinates (px, py) to a class label based on predefined regions.
+    px varies from -11 to -1 and py varies from 10 to 25.
+    
+    Returns:    
+        int: Class label based on the region defined by px and py.
+        - 0: First half of px and first half of py
+        - 1: First half of px and second half of py
+        - 2: Second half of px and first half of py
+        - 3: Second half of px and second half of py
+    """
+    is_px_first_half = False
+    is_py_first_half = False
+    
+    if px >= -11 and px < -6:
+        is_px_first_half = True
+    elif px >= -6 and px <= -1:
+        is_px_first_half = False
+    else:
+        # Handle edge cases - default to first half
+        is_px_first_half = True
+        
+    if py >= 10 and py <= 17:
+        is_py_first_half = True
+    elif py >= 18 and py <= 25:
+        is_py_first_half = False
+    else:
+        # Handle edge cases - default to first half
+        is_py_first_half = True
+    
+    if is_px_first_half and is_py_first_half:
+        return 0
+    elif is_px_first_half and not is_py_first_half:
+        return 1
+    elif not is_px_first_half and is_py_first_half:
+        return 2
+    elif not is_px_first_half and not is_py_first_half:
+        return 3
+    else:
+        # Fallback case
+        return 0
+        
+
+
 def create_dataset(
     data_path: Path,
     downsample_sequence: bool,
@@ -133,7 +178,7 @@ def create_dataset(
 
             # read robot info for this robot and trajectory
             data_df = pd.read_csv(
-                data_path / f"output_robot{robot_id}data/out{traj_id}.csv",
+                f"{data_path}/output_robot{robot_id}data/out{traj_id}.csv",
                 usecols=["ros_left_stamp", "goal_status", "px", "py"],  # type: ignore
             )
 
@@ -159,14 +204,13 @@ def create_dataset(
             # get image directory for the OTHER robot, since it is the one seeing THIS robot
             other_robot = 1 if robot_id == 2 else 2
             image_dir = (
-                data_path
-                / f"output_rosbag{other_robot}/bag{traj_id}/images/traj_{traj_id}"
+                f"{data_path}/output_rosbag{other_robot}/bag{traj_id}/images/traj_{traj_id}"
             )
 
             for camera in ["left", "right"]:
                 # get list of images that contain the other robot for this camera
-                robot_detected = image_dir / f"detected_images_{camera}.txt"
-                camera_img_dir = image_dir / camera
+                robot_detected =  f"{image_dir}/detected_images_{camera}.txt"
+                camera_img_dir = f"{image_dir}/{camera}"
 
                 # from the list of images containing the other robot, this
                 # creates a df with two columns: image filenames, and timestamp of each image in seconds
@@ -220,7 +264,8 @@ def create_dataset(
                             )
                         )
                         if regress
-                        else list(image_label_pairs["goal_status"])
+                        # else list(image_label_pairs["goal_status"])
+                        else list(convert_px_py_to_class(px, py) for px, py in zip(image_label_pairs["px"], image_label_pairs["py"]))
                     )
 
                     # create a new nested dict
@@ -426,12 +471,17 @@ class DetectedRobotImages(Dataset):
         regress: bool,
         video_idxs: Iterable[int],
         original_dataset_root: Optional[Path] = None,
+        is_original_dataset_index_needed: bool = False,
     ):
 
         self.video_idxs = video_idxs
+        # self.folder_path = (
+        #     Path(__file__).parent.parent
+        #     / "data"
+        #     / f"dataset_{downsample_img_by}_{downsample_sequence}_{imgs_per_sec}_{image_sequences}_{imgs_per_sequence}_{time_spacing}_{regress}_v{str(original_dataset_root).split('_')[1]}"
+        # )
         self.folder_path = (
-            Path(__file__).parent.parent
-            / "data"
+            Path(original_dataset_root)
             / f"dataset_{downsample_img_by}_{downsample_sequence}_{imgs_per_sec}_{image_sequences}_{imgs_per_sequence}_{time_spacing}_{regress}_v{str(original_dataset_root).split('_')[1]}"
         )
         self.image_sequences = image_sequences
@@ -503,6 +553,7 @@ class DetectedRobotImages(Dataset):
         img_width = 1280 / downsample_img_by
         assert img_height.is_integer() and img_width.is_integer()
         self.transform = Resize((int(img_height), int(img_width)))
+        self.is_original_dataset_index_needed = is_original_dataset_index_needed
 
     def __len__(self):
         return len(self.image_paths)
@@ -512,8 +563,14 @@ class DetectedRobotImages(Dataset):
             label = torch.Tensor(self.labels[index])
         else:
             # create a one-hot label based on the string label and the label-index mapping
-            label = torch.zeros(len(set(self.label_idx_mapping.values())))
-            label[self.label_idx_mapping[self.labels[index]]] = 1
+            # label = torch.zeros(len(set(self.label_idx_mapping.values())))
+            # label[self.label_idx_mapping[self.labels[index]]] = 1
+            # For classification, ensure we have a scalar integer label
+            label_value = self.labels[index]
+            # Convert to integer if it's not already
+            if isinstance(label_value, (list, tuple)):
+                label_value = label_value[0] if len(label_value) > 0 else 0
+            label = torch.tensor(label_value, dtype=torch.long)
 
         # if each data sample contains only one image, read that image
         if not self.image_sequences:
@@ -527,7 +584,11 @@ class DetectedRobotImages(Dataset):
                     for img in self.image_paths[index]
                 ]
             ).permute(1, 0, 2, 3)
-
+            
+        # if the original dataset index is needed, return it
+        if self.is_original_dataset_index_needed:
+            return tensor_img, label, index
+        
         return tensor_img, label
 
     def load_dataset(self):
@@ -543,7 +604,7 @@ class DetectedRobotImages(Dataset):
                     )
 
                     # load the labels for these images
-                    with open(this_folder / "img_label_mapping.json", "r") as f:
+                    with open(this_folder/"img_label_mapping.json", "r") as f:
                         img_label_mapping = json.load(f)
 
                     # single image per sample
@@ -610,7 +671,7 @@ class DetectedRobotImages(Dataset):
                     # save dictionary with image-label mapping
                     img_label_mapping = dict(zip(img_filenames, labels))
 
-                    with open(this_folder / "img_label_mapping.json", "w") as f:
+                    with open(this_folder/"img_label_mapping.json", "w") as f:
                         json.dump(img_label_mapping, f)
 
                     # save each image in this directory
@@ -620,7 +681,8 @@ class DetectedRobotImages(Dataset):
 
 if __name__ == "__main__":
     path_to_dataset_root = (
-        Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+        # Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+        "/vol/bitbucket/svadakku/data/dfki/Dataset_4_100_traj"
     )
     dataset = DetectedRobotImages(
         downsample_img_by=8,

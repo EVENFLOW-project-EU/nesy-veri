@@ -213,6 +213,10 @@ def train(net: nn.Module, data_config: dict, train_config: dict, cv_splits: list
         optimizer = optim.Adam(net.parameters(), lr=train_config["learning_rate"])
         loss_function = nn.MSELoss() if data_config["regress"] else nn.NLLLoss()
 
+        # def collate_fn(batch):
+        #     batch = list(filter(lambda x: x is not None, batch))
+        #     return torch.utils.data.dataloader.default_collate(batch) 
+        
         # create dataloaders for training and validation
         train_dl = DataLoader(train_dataset, train_config["batch_size"], shuffle=True)
         val_dl = DataLoader(val_dataset, train_config["batch_size"], shuffle=True)
@@ -227,16 +231,16 @@ def train(net: nn.Module, data_config: dict, train_config: dict, cv_splits: list
                 "f1-macro": torchmetrics.F1Score(
                     task="multiclass",
                     average="macro",
-                    num_classes=len(train_dataset[0][1]),
+                    num_classes=data_config["num_classes"],
                 ).to(device),
                 "f1-micro": torchmetrics.F1Score(
                     task="multiclass",
                     average="micro",
-                    num_classes=len(train_dataset[0][1]),
+                    num_classes=data_config["num_classes"],
                 ).to(device),
                 "accuracy": torchmetrics.Accuracy(
                     task="multiclass",
-                    num_classes=len(train_dataset[0][1]),
+                    num_classes=data_config["num_classes"],
                 ).to(device),
             }
         )
@@ -326,10 +330,12 @@ if __name__ == "__main__":
         "image_sequences": False,
         "imgs_per_sequence": 5,
         "time_spacing": 1.0,
-        "regress": True,
+        "regress": False,
         "dataset_root": (
-            Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+            # Path(__file__).parents[4] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+            "/vol/bitbucket/svadakku/data/dfki/Dataset_4_100_traj"
         ),
+        "num_classes": 4,  # 2 for regression, 4 for classification
     }
 
     # get train/val/test splits
@@ -347,8 +353,9 @@ if __name__ == "__main__":
     #     softmax=not data_config["regress"],
     # )
     net = RobotNet(
-        num_classes=2 if data_config["regress"] else 10,
-        softmax=not data_config["regress"],
+        num_classes=data_config["num_classes"],
+        # softmax=not data_config["regress"],
+        softmax=False, # we will use argmax to get the class
     )
     total_params = sum(p.numel() for p in net.parameters())
     print(f"Number of parameters: {total_params}")
@@ -372,7 +379,7 @@ if __name__ == "__main__":
     # define training config
     train_config = {
         "num_epochs": 100,
-        "batch_size": 32,
+        "batch_size": 500,
         "learning_rate": 1e-3,
         "model_info": model_info,
     }

@@ -18,7 +18,8 @@ if __name__ == "__main__":
         "time_spacing": 1.0,
         "regress": True,
         "dataset_root": (
-            Path(__file__).parents[5] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+            # Path(__file__).parents[5] / "srv/evenflow-data/DFKI/Dataset_4_100_traj"
+            "/vol/bitbucket/svadakku/data/dfki/Dataset_4_100_traj"
         ),
     }
 
