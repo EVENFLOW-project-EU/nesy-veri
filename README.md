@@ -1,3 +1,8 @@
+## What is this?
+This is the repository for the paper ["A Scalable Approach to Probabilistic Neuro-Symbolic Robustness Verification"](https://arxiv.org/abs/2502.03274).
+
+If you build on the idea or code please consider citing the paper! :)
+
 ## Installation
 We use [Poetry](https://python-poetry.org/) for package management. Simply run:
 ```
@@ -36,3 +41,4 @@ This is an autonomous driving task based on the [ROAD-R dataset](https://sites.g
 For instructions on downloading the data click [here](https://sites.google.com/view/road-r/dataset#h.9jzfyrwvkt7j). For the scripts below to run without modification we require that, after cloning this repo, you create a directory named "dataset" at the project root. This directory should contain the ```road_trainval_v1.0.json``` file as well as the ```rgb-images``` directory. We don't need the videos or the .txt files.
 
 After you have the data, you can run ```nesy_veri/examples/ROAD_R/verification.py```. This will load the two pretrained networks, create our custom dataset, create the NeSy system, and perform robustness verification for the true positive examples.
+
